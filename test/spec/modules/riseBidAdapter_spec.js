@@ -116,6 +116,13 @@ describe('riseAdapter', function () {
       expect(request.data.bids[0].placementId).to.equal(placementId);
     });
 
+    it('sends the is_wrapper parameter to ENDPOINT via POST', function() {
+      const request = spec.buildRequests(bidRequests, bidderRequest);
+      expect(request.data.params).to.be.an('object');
+      expect(request.data.params).to.have.property('is_wrapper');
+      expect(request.data.params.is_wrapper).to.equal(false);
+    });
+
     it('sends bid request to ENDPOINT via POST', function () {
       const request = spec.buildRequests(bidRequests, bidderRequest);
       expect(request.url).to.equal(ENDPOINT);
@@ -333,6 +340,24 @@ describe('riseAdapter', function () {
       const request = spec.buildRequests([bid], bidderRequest);
       expect(request.data.bids[0]).to.be.an('object');
       expect(request.data.bids[0]).to.have.property('floorPrice', 1.5);
+    });
+
+    describe('COPPA Param', function() {
+      it('should set coppa equal 0 in bid request if coppa is set to false', function() {
+        const request = spec.buildRequests(bidRequests, bidderRequest);
+        expect(request.data.bids[0].coppa).to.be.equal(0);
+      });
+
+      it('should set coppa equal 1 in bid request if coppa is set to true', function() {
+        const bid = utils.deepClone(bidRequests[0]);
+        bid.ortb2 = {
+          'regs': {
+            'coppa': true,
+          }
+        };
+        const request = spec.buildRequests([bid], bidderRequest);
+        expect(request.data.bids[0].coppa).to.be.equal(1);
+      });
     });
   });
 
