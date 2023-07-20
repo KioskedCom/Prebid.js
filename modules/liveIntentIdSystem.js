@@ -264,6 +264,10 @@ export const liveIntentIdSubmodule = {
         delete result.lipb.thetradedesk
       }
 
+      if (value.magnite) {
+        result.magnite = { 'id': value.magnite }
+      }
+
       return result
     }
 
