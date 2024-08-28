@@ -164,6 +164,14 @@ userIdAsEids = [
     },
 
     {
+        source: 'liveintent.indexexchange.com',
+        uids: [{
+            id: 'some-random-id-value',
+            atype: 3
+        }]
+    },
+
+    {
         source: 'media.net',
         uids: [{
             id: 'some-random-id-value',
@@ -193,6 +201,14 @@ userIdAsEids = [
             ext: {
                 provider: 'liveintent.com'
             }
+        }]
+    },
+
+    {
+        source: 'rubiconproject.com',
+        uids: [{
+            id: 'some-random-id-value',
+            atype: 3
         }]
     },
 
