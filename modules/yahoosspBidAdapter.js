@@ -101,6 +101,38 @@ function extractUserSyncUrls(syncOptions, pixels) {
   return userSyncObjects;
 }
 
+/**
+ * @param {string} url
+ * @param {object} consentData
+ * @param {object} consentData.gpp
+ * @param {string} consentData.gpp.gppConsent
+ * @param {array} consentData.gpp.applicableSections
+ * @param {object} consentData.gdpr
+ * @param {object} consentData.gdpr.consentString
+ * @param {object} consentData.gdpr.gdprApplies
+ * @param {string} consentData.uspConsent
+ */
+function updateConsentQueryParams(url, consentData) {
+  const parameterMap = {
+    'gdpr_consent': consentData.gdpr ? consentData.gdpr.consentString : '',
+    'gdpr': consentData.gdpr && consentData.gdpr.gdprApplies ? '1' : '0',
+    'us_privacy': consentData.uspConsent ? consentData.uspConsent : '',
+    'gpp': consentData.gpp ? consentData.gpp.gppString : '',
+    'gpp_sid': consentData.gpp && Array.isArray(consentData.gpp.applicableSections)
+      ? consentData.gpp.applicableSections.join(',') : ''
+  }
+
+  const existingUrl = new URL(url);
+  const params = existingUrl.searchParams;
+
+  for (const [key, value] of Object.entries(parameterMap)) {
+    params.set(key, value);
+  }
+
+  existingUrl.search = params.toString();
+  return existingUrl.toString();
+};
+
 function getSupportedEids(bid) {
   if (isArray(deepAccess(bid, 'userIdAsEids'))) {
     return bid.userIdAsEids.filter(eid => {
@@ -244,7 +276,9 @@ function generateOpenRtbObject(bidderRequest, bid) {
       regs: {
         ext: {
           'us_privacy': bidderRequest.uspConsent ? bidderRequest.uspConsent : '',
-          gdpr: bidderRequest.gdprConsent && bidderRequest.gdprConsent.gdprApplies ? 1 : 0
+          gdpr: bidderRequest.gdprConsent && bidderRequest.gdprConsent.gdprApplies ? 1 : 0,
+          gpp: bidderRequest.gppConsent ? bidderRequest.gppConsent.gppString : '',
+          gpp_sid: bidderRequest.gppConsent ? bidderRequest.gppConsent.applicableSections : []
         }
       },
       source: {
@@ -518,6 +552,7 @@ function createRenderer(bidderRequest, bidResponse) {
   }
   return renderer;
 }
+
 /* Utility functions */
 
 export const spec = {
@@ -634,11 +669,19 @@ export const spec = {
     return response;
   },
 
-  getUserSyncs: function(syncOptions, serverResponses, gdprConsent, uspConsent) {
+  getUserSyncs: function(syncOptions, serverResponses, gdprConsent, uspConsent, gppConsent) {
     const bidResponse = !isEmpty(serverResponses) && serverResponses[0].body;
 
     if (bidResponse && bidResponse.ext && bidResponse.ext.pixels) {
-      return extractUserSyncUrls(syncOptions, bidResponse.ext.pixels);
+      const userSyncObjects = extractUserSyncUrls(syncOptions, bidResponse.ext.pixels);
+      userSyncObjects.forEach(userSyncObject => {
+        userSyncObject.url = updateConsentQueryParams(userSyncObject.url, {
+          gpp: gppConsent,
+          gdpr: gdprConsent,
+          uspConsent: uspConsent
+        });
+      });
+      return userSyncObjects;
     }
 
     return [];
