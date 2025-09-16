@@ -1,0 +1,21 @@
+[
+  "appnexusBidAdapter",
+  "criteoBidAdapter",
+  "ixBidAdapter",
+  "openxBidAdapter",
+  "pubmaticBidAdapter",
+  "rubiconBidAdapter",
+  "smartadserverBidAdapter",
+  "sovrnBidAdapter",
+  "eplanningBidAdapter",
+  "pulsepointBidAdapter",
+  "videoheroesBidAdapter",
+  "onetagBidAdapter",
+  "richaudienceBidAdapter",
+  "sharedIdSystem",
+  "userId",
+  "consentManagementTcf",
+  "consentManagementGpp",
+  "consentManagementUsp",
+  "tcfControl"
+]
