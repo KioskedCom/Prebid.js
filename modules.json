@@ -14,8 +14,9 @@
   "richaudienceBidAdapter",
   "sharedIdSystem",
   "userId",
+  "uid2IdSystem",
   "consentManagementTcf",
-  "consentManagementGpp",
   "consentManagementUsp",
-  "tcfControl"
+  "tcfControl",
+  "neuwoRtdProvider"
 ]
