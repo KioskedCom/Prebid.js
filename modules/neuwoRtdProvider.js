@@ -1,6 +1,6 @@
 /**
  * @module neuwoRtdProvider
- * @version 2.2.0
+ * @version 2.2.6
  * @author Grzegorz Malisz
  * @see {project-root-directory}/integrationExamples/gpt/neuwoRtdProvider_example.html for an example/testing page.
  * @see {project-root-directory}/test/spec/modules/neuwoRtdProvider_spec.js for unit tests.
@@ -30,23 +30,26 @@ import {
 } from "../src/utils.js";
 
 const MODULE_NAME = "NeuwoRTDModule";
+const MODULE_VERSION = "2.2.6";
 export const DATA_PROVIDER = "www.neuwo.ai";
 
 // Default IAB Content Taxonomy version
 const DEFAULT_IAB_CONTENT_TAXONOMY_VERSION = "2.2";
 
-// Cached API response to avoid redundant requests.
-let globalCachedResponse;
-// In-flight request promise to prevent duplicate API calls during the same request cycle.
-let pendingRequest;
+// Maximum number of cached API responses to keep. Oldest entries are evicted when exceeded.
+const MAX_CACHE_ENTRIES = 10;
+// Cached API responses keyed by full API URL to avoid redundant requests.
+let cachedResponses = {};
+// In-flight request promises keyed by full API URL to prevent duplicate API calls during the same request cycle.
+let pendingRequests = {};
 
 /**
- * Clears the cached API response and pending request. Primarily used for testing.
+ * Clears the cached API responses and pending requests. Primarily used for testing.
  * @private
  */
 export function clearCache() {
-  globalCachedResponse = undefined;
-  pendingRequest = undefined;
+  cachedResponses = {};
+  pendingRequests = {};
 }
 
 // Maps the IAB Content Taxonomy version string to the corresponding segtax ID.
@@ -69,14 +72,14 @@ const IAB_CONTENT_TAXONOMY_MAP = {
  * @returns {boolean} `true` if the module is configured correctly, otherwise `false`.
  */
 function init(config, userConsent) {
-  logInfo(MODULE_NAME, "init():", config, userConsent);
+  logInfo(MODULE_NAME, "init():", "Version " + MODULE_VERSION, config, userConsent);
   const params = config?.params || {};
   if (!params.neuwoApiUrl) {
     logError(MODULE_NAME, "init():", "Missing Neuwo Edge API Endpoint URL");
     return false;
   }
   if (!params.neuwoApiToken) {
-    logError(MODULE_NAME, "init():", "Missing Neuwo API Token missing");
+    logError(MODULE_NAME, "init():", "Missing Neuwo API Token");
     return false;
   }
   return true;
@@ -86,7 +89,7 @@ function init(config, userConsent) {
  * Fetches contextual data from the Neuwo API and enriches the bid request object with IAB categories.
  * Uses cached response if available to avoid redundant API calls.
  * Automatically detects API capabilities from the endpoint URL format:
- * - URLs containing "/v1/iab" use POST requests with server-side filtering
+ * - URLs containing "/v1/iab" use GET requests with server-side filtering
  * - Other URLs use GET requests with client-side filtering (legacy support)
  *
  * @param {Object} reqBidsConfigObj The bid request configuration object.
@@ -134,6 +137,11 @@ export function getBidRequestData(
   } = config.params;
 
   const rawUrl = websiteToAnalyseUrl || getRefererInfo().page;
+  if (!rawUrl) {
+    logError(MODULE_NAME, "getBidRequestData():", "No URL available to analyse");
+    callback();
+    return;
+  }
   const processedUrl = cleanUrl(rawUrl, {
     stripAllQueryParams,
     stripQueryParamsForDomains,
@@ -145,15 +153,21 @@ export function getBidRequestData(
     IAB_CONTENT_TAXONOMY_MAP[iabContentTaxonomyVersion] ||
     IAB_CONTENT_TAXONOMY_MAP[DEFAULT_IAB_CONTENT_TAXONOMY_VERSION];
 
-  // Detect API version from URL
-  const isV2Api = neuwoApiUrl.includes("/v1/iab");
+  // Detect whether the endpoint supports multi-taxonomy responses and server-side filtering.
+  // Use URL pathname to avoid false positives when "/v1/iab" appears in query params.
+  let isIabEndpoint = false;
+  try {
+    isIabEndpoint = new URL(neuwoApiUrl).pathname.includes("/v1/iab");
+  } catch (e) {
+    isIabEndpoint = neuwoApiUrl.split("?")[0].includes("/v1/iab");
+  }
 
-  // Warn if OpenRTB 2.5 feature enabled with legacy API
-  if (enableOrtb25Fields && !isV2Api) {
+  // Warn if OpenRTB 2.5 feature enabled with legacy endpoint
+  if (enableOrtb25Fields && !isIabEndpoint) {
     logWarn(
       MODULE_NAME,
       "getBidRequestData():",
-      "OpenRTB 2.5 category fields are only supported with /v1/iab endpoint"
+      "OpenRTB 2.5 category fields require the /v1/iab endpoint"
     );
   }
 
@@ -165,12 +179,13 @@ export function getBidRequestData(
   ];
 
   // Request both IAB Content Taxonomy (based on config) and IAB Audience Taxonomy (segtax 4)
-  if (isV2Api) {
+  if (isIabEndpoint) {
     urlParams.push("iabVersions=" + contentSegtax);
     urlParams.push("iabVersions=4"); // IAB Audience 1.1
 
-    // Request IAB 1.0 for OpenRTB 2.5 fields if feature enabled
-    if (enableOrtb25Fields) {
+    // Request IAB 1.0 for OpenRTB 2.5 fields if feature enabled.
+    // Skip when contentSegtax is already 1 -- already requested above.
+    if (enableOrtb25Fields && contentSegtax !== 1) {
       urlParams.push("iabVersions=1"); // IAB Content 1.0
     }
 
@@ -187,33 +202,47 @@ export function getBidRequestData(
 
   const neuwoApiUrlFull = neuwoApiUrl + joiner + urlParams.join("&");
 
+  // For /v1/iab endpoints the full URL already encodes all config (iabVersions, filters).
+  // For legacy endpoints the URL only carries token + page URL, so append config-dependent
+  // values to the cache key to prevent different configs sharing a response that was
+  // transformed/filtered for a different taxonomy version or filter set.
+  let cacheKey = neuwoApiUrlFull;
+  if (!isIabEndpoint) {
+    cacheKey += "&_segtax=" + contentSegtax;
+    if (iabTaxonomyFilters && Object.keys(iabTaxonomyFilters).length > 0) {
+      cacheKey += "&_filters=" + JSON.stringify(iabTaxonomyFilters);
+    }
+  }
+
   // Cache flow: cached response -> pending request -> new request
   // Each caller gets their own callback invoked when data is ready.
-  if (enableCache && globalCachedResponse) {
+  // Keyed by cacheKey to ensure different parameters never share cached data.
+  if (enableCache && cachedResponses[cacheKey]) {
     // Previous request succeeded - use cached response immediately
     logInfo(
       MODULE_NAME,
       "getBidRequestData():",
       "Cache System:",
-      "Using cached response:",
-      globalCachedResponse
+      "Using cached response for:",
+      cacheKey
     );
     injectIabCategories(
-      globalCachedResponse,
+      cachedResponses[cacheKey],
       reqBidsConfigObj,
       iabContentTaxonomyVersion,
       enableOrtb25Fields
     );
     callback();
-  } else if (enableCache && pendingRequest) {
-    // Another caller started a request - wait for it instead of making a duplicate
+  } else if (enableCache && pendingRequests[cacheKey]) {
+    // Another caller started a request with the same params - wait for it
     logInfo(
       MODULE_NAME,
       "getBidRequestData():",
       "Cache System:",
-      "Waiting for pending request"
+      "Waiting for pending request for:",
+      cacheKey
     );
-    pendingRequest
+    pendingRequests[cacheKey]
       .then((responseParsed) => {
         if (responseParsed) {
           injectIabCategories(
@@ -247,10 +276,24 @@ export function getBidRequestData(
               "Neuwo API raw response:",
               response
             );
-            try {
-              let responseParsed = JSON.parse(response);
 
-              if (!isV2Api) {
+            let responseParsed;
+            try {
+              responseParsed = JSON.parse(response);
+            } catch (ex) {
+              logError(
+                MODULE_NAME,
+                "getBidRequestData():",
+                "success():",
+                "Error parsing Neuwo API response JSON:",
+                ex
+              );
+              resolve(null);
+              return;
+            }
+
+            try {
+              if (!isIabEndpoint) {
                 // Apply per-tier filtering to V1 format
                 const filteredMarketingCategories = filterIabTaxonomies(
                   responseParsed.marketing_categories,
@@ -264,9 +307,19 @@ export function getBidRequestData(
                 );
               }
 
-              // Cache response
-              if (enableCache) {
-                globalCachedResponse = responseParsed;
+              // Cache response, evicting oldest entry if at capacity.
+              // Only cache valid responses so failed requests can be retried.
+              if (
+                enableCache &&
+                responseParsed &&
+                typeof responseParsed === "object"
+              ) {
+                // Object.keys() preserves string insertion order in modern JS engines.
+                const keys = Object.keys(cachedResponses);
+                if (keys.length >= MAX_CACHE_ENTRIES) {
+                  delete cachedResponses[keys[0]];
+                }
+                cachedResponses[cacheKey] = responseParsed;
               }
 
               injectIabCategories(
@@ -281,7 +334,7 @@ export function getBidRequestData(
                 MODULE_NAME,
                 "getBidRequestData():",
                 "success():",
-                "Error parsing Neuwo API response:",
+                "Error processing Neuwo API response:",
                 ex
               );
               resolve(null);
@@ -302,11 +355,11 @@ export function getBidRequestData(
     });
 
     if (enableCache) {
-      // Store promise so concurrent callers can wait on it
-      pendingRequest = requestPromise;
+      // Store promise so concurrent callers with same params can wait on it
+      pendingRequests[cacheKey] = requestPromise;
       // Clear after settling so failed requests can be retried
       requestPromise.finally(() => {
-        pendingRequest = undefined;
+        delete pendingRequests[cacheKey];
       });
     }
 
@@ -437,8 +490,8 @@ export function injectOrtbData(reqBidsConfigObj, path, data) {
 export function extractCategoryIds(tierData) {
   const ids = [];
 
-  // Handle null, undefined, or non-object tierData
-  if (!tierData || typeof tierData !== "object") {
+  // Handle null, undefined, non-object, or array tierData
+  if (!tierData || typeof tierData !== "object" || Array.isArray(tierData)) {
     return ids;
   }
 
@@ -484,30 +537,39 @@ export function buildIabData(tierData, segtax) {
  * @returns {Array} Filtered and limited array of taxonomies, sorted by relevance (highest first).
  */
 export function filterIabTaxonomyTier(iabTaxonomies, filter = {}) {
-  if (!Array.isArray(iabTaxonomies) || iabTaxonomies.length === 0) {
+  if (!Array.isArray(iabTaxonomies)) {
+    return [];
+  }
+  if (iabTaxonomies.length === 0) {
     return iabTaxonomies;
   }
 
   const { threshold, limit } = filter;
+  const hasThreshold = typeof threshold === "number" && threshold > 0;
+  const hasLimit = typeof limit === "number" && limit >= 0;
+
+  // No effective filter configured -- return original order unchanged
+  if (!hasThreshold && !hasLimit) {
+    return iabTaxonomies;
+  }
+
   let filtered = [...iabTaxonomies]; // Create copy to avoid mutating original
 
   // Filter by minimum relevance score
-  if (typeof threshold === "number" && threshold > 0) {
+  if (hasThreshold) {
     filtered = filtered.filter((item) => {
       const relevance = parseFloat(item?.relevance);
       return !isNaN(relevance) && relevance >= threshold;
     });
   }
 
-  // Sort by relevance (highest first) before limiting
-  filtered = filtered.sort((a, b) => {
-    const relA = parseFloat(a?.relevance) || 0;
-    const relB = parseFloat(b?.relevance) || 0;
-    return relB - relA; // Descending order
-  });
-
-  // Limit count
-  if (typeof limit === "number" && limit > 0) {
+  // Sort by relevance (highest first) so limit keeps the most relevant items
+  if (hasLimit) {
+    filtered = filtered.sort((a, b) => {
+      const relA = parseFloat(a?.relevance) || 0;
+      const relB = parseFloat(b?.relevance) || 0;
+      return relB - relA; // Descending order
+    });
     filtered = filtered.slice(0, limit);
   }
 
@@ -603,7 +665,7 @@ export function transformV1ResponseToV2(v1Response, contentSegtax) {
   const contentSegtaxStr = String(contentSegtax);
   const result = {};
 
-  // Content tiers → segtax from config
+  // Content tiers: keyed by segtax from config
   result[contentSegtaxStr] = {};
   if (marketingCategories.iab_tier_1) {
     result[contentSegtaxStr]["1"] = transformSegmentsV1ToV2(
@@ -621,7 +683,7 @@ export function transformV1ResponseToV2(v1Response, contentSegtax) {
     );
   }
 
-  // Audience tiers → segtax 4
+  // Audience tiers: segtax 4
   result["4"] = {};
   if (marketingCategories.iab_audience_tier_3) {
     result["4"]["3"] = transformSegmentsV1ToV2(
@@ -712,9 +774,10 @@ export function buildFilterQueryParams(
     }
   });
 
-  // Apply same filters to IAB 1.0 (segtax 1) for OpenRTB 2.5 fields
+  // Apply same filters to IAB 1.0 (segtax 1) for OpenRTB 2.5 fields.
+  // Skip when contentSegtax is already 1 -- the first loop already emitted filter_1_* params.
   // Note: IAB 1.0 only has tiers 1 and 2 (tier 3 will be ignored if configured)
-  if (enableOrtb25Fields) {
+  if (enableOrtb25Fields && contentSegtax !== 1) {
     if (iabTaxonomyFilters.ContentTier1) {
       Object.keys(iabTaxonomyFilters.ContentTier1).forEach((prop) => {
         const value = iabTaxonomyFilters.ContentTier1[prop];
@@ -790,32 +853,44 @@ export function injectIabCategories(
     audienceData
   );
 
-  // Only inject data if there are actual segments
-  if (contentData.segment.length > 0 || audienceData.segment.length > 0) {
+  // ------------- CUSTOM ----------------
+  if (typeof window !== 'undefined') {
+    window._neuwoData = {
+      content: contentData,
+      audience: audienceData
+    };
+  }
+
+  // -----------------------------
+
+  // Inject content and audience data independently to avoid sending empty structures
+  if (contentData.segment.length > 0) {
     injectOrtbData(reqBidsConfigObj, "site.content.data", [contentData]);
-    injectOrtbData(reqBidsConfigObj, "user.data", [audienceData]);
-
-    // ------------- CUSTOM ----------------
-    if (typeof window !== 'undefined') {
-      window._neuwoData = {
-        content: contentData,
-        audience: audienceData
-      };
-    }
-
-    // -----------------------------
-
     logInfo(
       MODULE_NAME,
       "injectIabCategories():",
-      "post-injection bidsConfig",
-      reqBidsConfigObj
+      "Injected content data into site.content.data"
     );
   } else {
     logInfo(
       MODULE_NAME,
       "injectIabCategories():",
-      "No segments to inject, skipping data injection"
+      "No content segments to inject, skipping site.content.data"
+    );
+  }
+
+  if (audienceData.segment.length > 0) {
+    injectOrtbData(reqBidsConfigObj, "user.data", [audienceData]);
+    logInfo(
+      MODULE_NAME,
+      "injectIabCategories():",
+      "Injected audience data into user.data"
+    );
+  } else {
+    logInfo(
+      MODULE_NAME,
+      "injectIabCategories():",
+      "No audience segments to inject, skipping user.data"
     );
   }
 
