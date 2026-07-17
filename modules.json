@@ -5,7 +5,7 @@
   "openxBidAdapter",
   "pubmaticBidAdapter",
   "rubiconBidAdapter",
-  "smartadserverBidAdapter",
+  "equativBidAdapter",
   "sovrnBidAdapter",
   "eplanningBidAdapter",
   "pulsepointBidAdapter",
@@ -18,5 +18,10 @@
   "consentManagementTcf",
   "consentManagementUsp",
   "tcfControl",
-  "neuwoRtdProvider"
+  "neuwoRtdProvider",
+  "neuwoBidAdapter",
+  "adfBidAdapter",
+  "connectadBidAdapter",
+  "teadsBidAdapter",
+  "tripleliftBidAdapter"
 ]
