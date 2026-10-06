@@ -349,7 +349,7 @@
             style="background: #f4f4f4; padding: 10px; overflow-x: auto; max-height: 300px;">No data yet. Click "Update" to fetch data.</pre>
         <h3>Neuwo OpenRTB 2.5 Category Fields (IAB Content Taxonomy 1.0) Data</h3>
         <pre id="neuwo-ortb25-fields"
-            style="background: #f4f4f4; padding: 10px; overflow-x: auto; max-height: 300px;">No data yet. Click "Update" to fetch data (requires enableOrtb25Fields and /v1/iab endpoint).</pre>
+            style="background: #f4f4f4; padding: 10px; overflow-x: auto; max-height: 300px;">No data yet. Click "Update" to fetch data (requires enableOrtb25Fields).</pre>
     </div>
 
     <div>
@@ -444,7 +444,7 @@ pbjs.onEvent("bidRequested", function(bidRequest) {
             const hasData = Object.values(ortb25Fields).some(val => val && val.length > 0);
             ortb25El.textContent = hasData
                 ? JSON.stringify(ortb25Fields, null, 2)
-                : "No OpenRTB 2.5 category fields found (requires enableOrtb25Fields=true and /v1/iab endpoint).";
+                : "No OpenRTB 2.5 category fields found (requires enableOrtb25Fields=true).";
         }
     }
 

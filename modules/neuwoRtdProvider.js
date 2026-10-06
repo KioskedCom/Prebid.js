@@ -1,6 +1,6 @@
 /**
  * @module neuwoRtdProvider
- * @version 2.2.6
+ * @version 3.0.0
  * @author Grzegorz Malisz
  * @see {project-root-directory}/integrationExamples/gpt/neuwoRtdProvider_example.html for an example/testing page.
  * @see {project-root-directory}/test/spec/modules/neuwoRtdProvider_spec.js for unit tests.
@@ -30,7 +30,7 @@ import {
 } from "../src/utils.js";
 
 const MODULE_NAME = "NeuwoRTDModule";
-const MODULE_VERSION = "2.2.6";
+const MODULE_VERSION = "3.0.0";
 export const DATA_PROVIDER = "www.neuwo.ai";
 
 // Default IAB Content Taxonomy version
