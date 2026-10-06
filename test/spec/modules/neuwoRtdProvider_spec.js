@@ -1367,6 +1367,32 @@ describe("neuwoRtdModule", function () {
       );
     });
 
+    it("should request IAB Content Taxonomy 2.2 when iabContentTaxonomyVersion is not set", function () {
+      const bidsConfig = bidsConfiglike();
+      const conf = config();
+      delete conf.params.iabContentTaxonomyVersion;
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/article.php";
+
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      const request = server.requests[0];
+
+      expect(request.url, "should request segtax 6 by default").to.include("iabVersions=6");
+      expect(request.url, "should not send an undefined segtax").to.not.include("iabVersions=undefined");
+    });
+
+    it("should fall back to IAB Content Taxonomy 2.2 when iabContentTaxonomyVersion is unknown", function () {
+      const bidsConfig = bidsConfiglike();
+      const conf = config();
+      conf.params.iabContentTaxonomyVersion = "invalid-version";
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/article.php";
+
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      const request = server.requests[0];
+
+      expect(request.url, "should request segtax 6 for an unknown version").to.include("iabVersions=6");
+      expect(request.url, "should not send an undefined segtax").to.not.include("iabVersions=undefined");
+    });
+
     describe("when using IAB Content Taxonomy 2.2 (API default)", function () {
       it("should correctly structure the bids object after a successful API response", function () {
         const apiResponse = getNeuwoApiResponse();
