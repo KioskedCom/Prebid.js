@@ -1,5 +1,6 @@
 import * as neuwo from "modules/neuwoRtdProvider";
 import * as refererDetection from "src/refererDetection.js";
+import * as utils from "src/utils.js";
 import { server } from "test/mocks/xhr.js";
 
 const NEUWO_API_URL = "https://edge.neuwo.ai/api/aitopics/edge/v1/iab";
@@ -230,6 +231,60 @@ describe("neuwoRtdModule", function () {
         neuwo.neuwoRtdModule.init(incompleteConfig),
         "should fail initialization if neuwoApiToken is not set"
       ).to.be.false;
+    });
+
+    describe("endpoint URL check", function () {
+      let logWarnStub;
+
+      beforeEach(function () {
+        logWarnStub = sinon.stub(utils, "logWarn");
+      });
+
+      afterEach(function () {
+        logWarnStub.restore();
+      });
+
+      function initWithUrl(neuwoApiUrl) {
+        const conf = config();
+        conf.params.neuwoApiUrl = neuwoApiUrl;
+        return neuwo.neuwoRtdModule.init(conf);
+      }
+
+      function expectEndpointWarning() {
+        expect(logWarnStub.calledOnce, "should warn once").to.be.true;
+        expect(logWarnStub.firstCall.args[0]).to.equal("NeuwoRTDModule");
+        expect(logWarnStub.firstCall.args[2]).to.match(/problem with the Neuwo API URL/);
+      }
+
+      it("should not warn for an /edge/v1/iab URL", function () {
+        expect(initWithUrl("https://edge.neuwo.ai/api/aitopics/edge/v1/iab")).to.be.true;
+        expect(logWarnStub.called, "should not warn").to.be.false;
+      });
+
+      it("should not warn for an /edge/v1/iab URL with a trailing slash", function () {
+        expect(initWithUrl("https://edge.neuwo.ai/api/aitopics/edge/v1/iab/")).to.be.true;
+        expect(logWarnStub.called, "should not warn").to.be.false;
+      });
+
+      it("should not warn for an /edge/v1/iab URL with query parameters", function () {
+        expect(initWithUrl("https://edge.neuwo.ai/api/aitopics/edge/v1/iab?environment=production")).to.be.true;
+        expect(logWarnStub.called, "should not warn").to.be.false;
+      });
+
+      it("should warn but still initialise when the URL has another path", function () {
+        expect(initWithUrl("https://proxy.example.com/neuwo")).to.be.true;
+        expectEndpointWarning();
+      });
+
+      it("should warn when /edge/v1/iab appears only in the query string", function () {
+        expect(initWithUrl("https://proxy.example.com/api?redirect=/edge/v1/iab")).to.be.true;
+        expectEndpointWarning();
+      });
+
+      it("should warn but still initialise when the URL is not absolute", function () {
+        expect(initWithUrl("/api/aitopics/edge/v1/iab")).to.be.true;
+        expectEndpointWarning();
+      });
     });
   });
 

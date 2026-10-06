@@ -82,6 +82,14 @@ function init(config, userConsent) {
     logError(MODULE_NAME, "init():", "Missing Neuwo API Token");
     return false;
   }
+  if (!isValidApiUrl(params.neuwoApiUrl)) {
+    logWarn(
+      MODULE_NAME,
+      "init():",
+      "There may be a problem with the Neuwo API URL: expected an absolute URL ending in /edge/v1/iab, got:",
+      params.neuwoApiUrl
+    );
+  }
   return true;
 }
 
@@ -371,6 +379,20 @@ export function getBidRequestData(
 //
 // HELPER FUNCTIONS
 //
+
+/**
+ * Checks that the Neuwo API URL is an absolute URL whose path ends in /edge/v1/iab.
+ *
+ * @param {string} url The configured Neuwo API URL.
+ * @returns {boolean} `true` if the URL looks like a valid /edge/v1/iab endpoint URL, otherwise `false`.
+ */
+function isValidApiUrl(url) {
+  try {
+    return /\/edge\/v1\/iab\/?$/.test(new URL(url).pathname);
+  } catch (e) {
+    return false;
+  }
+}
 
 /**
  * Cleans a URL by stripping query parameters and/or fragments based on the provided configuration.
