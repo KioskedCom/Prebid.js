@@ -158,6 +158,14 @@
                 AudienceTier5: { limit: 7, threshold: 0.3 },
             } : undefined;
 
+            const inputEnableEnrichmentShare = document.getElementById("enable-enrichment-share");
+            const enableEnrichmentShare = inputEnableEnrichmentShare ? inputEnableEnrichmentShare.checked : false;
+            const inputEnrichmentRatio = document.getElementById("enrichment-ratio");
+            const enrichmentRatio = inputEnrichmentRatio && inputEnrichmentRatio.value !== ""
+                ? Number(inputEnrichmentRatio.value)
+                : undefined;
+            const enrichmentShareSettings = enableEnrichmentShare ? { enabled: true, enrichmentRatio } : undefined;
+
             pbjs.que.push(function () {
                 pbjs.setConfig({
                     debug: true,
@@ -179,6 +187,7 @@
                                     stripQueryParams,
                                     stripFragments,
                                     iabTaxonomyFilters,
+                                    enrichmentShareSettings,
                                 }
                             }
                         ]
@@ -190,7 +199,10 @@
             pbjs.que.push(function () {
                 pbjs.addAdUnits(adUnits);
                 pbjs.requestBids({
-                    bidsBackHandler: initAdserver,
+                    bidsBackHandler: function () {
+                        updateRtdGroupDisplay();
+                        initAdserver();
+                    },
                 });
             });
             // Timeout
@@ -301,6 +313,21 @@
             </div>
         </div>
 
+        <h3>Enrichment Share Options</h3>
+        <div style="margin-bottom: 10px;">
+            <label>
+                <input type="checkbox" id="enable-enrichment-share" />
+                Enable enrichment share (splits page loads into enriched and baseline groups)
+            </label>
+        </div>
+        <div style="margin-bottom: 10px;">
+            <input type="number" placeholder="Enrichment ratio (default 0.9)" id="enrichment-ratio" min="0" max="1"
+                step="0.05" style="width: 400px;" />
+        </div>
+        <p style="color: #666; font-size: 0.9em;">RTD settings apply once per page load: reload the page to change them.
+            Add <code>?neuwo_rtd_group=enriched</code> or <code>?neuwo_rtd_group=baseline</code> to the URL to force a
+            group.</p>
+
         <button onClick="onSettingsUpdate()">Update</button>
     </div>
 
@@ -350,6 +377,9 @@
         <h3>Neuwo OpenRTB 2.5 Category Fields (IAB Content Taxonomy 1.0) Data</h3>
         <pre id="neuwo-ortb25-fields"
             style="background: #f4f4f4; padding: 10px; overflow-x: auto; max-height: 300px;">No data yet. Click "Update" to fetch data (requires enableOrtb25Fields).</pre>
+        <h3>Neuwo RTD Group (GAM targeting)</h3>
+        <pre id="neuwo-rtd-group"
+            style="background: #f4f4f4; padding: 10px; overflow-x: auto; max-height: 300px;">No data yet. Click "Update" to run an auction (requires enrichment share).</pre>
     </div>
 
     <div>
@@ -423,6 +453,21 @@ pbjs.onEvent("bidRequested", function(bidRequest) {
             }
         });
     });
+
+    function updateRtdGroupDisplay() {
+        const groupEl = document.getElementById("neuwo-rtd-group");
+        if (!groupEl) {
+            return;
+        }
+        const targeting = pbjs.getAdserverTargeting();
+        const groups = {};
+        Object.keys(targeting).forEach(function (code) {
+            groups[code] = targeting[code].neuwo_rtd_group || "not set";
+        });
+        groupEl.textContent = Object.keys(groups).length
+            ? JSON.stringify(groups, null, 2)
+            : "No ad unit targeting found.";
+    }
 
     // Helper to update display elements
     function updateDisplayElements(neuwoSiteData, neuwoUserData, ortb25Fields) {
@@ -602,7 +647,9 @@ pbjs.onEvent("bidRequested", function(bidRequest) {
             stripQueryParamsForDomains: document.getElementById("strip-query-params-for-domains")?.value || "",
             stripQueryParams: document.getElementById("strip-query-params")?.value || "",
             stripFragments: document.getElementById("strip-fragments")?.checked || false,
-            enableIabFiltering: document.getElementById("enable-iab-filtering")?.checked || false
+            enableIabFiltering: document.getElementById("enable-iab-filtering")?.checked || false,
+            enableEnrichmentShare: document.getElementById("enable-enrichment-share")?.checked || false,
+            enrichmentRatio: document.getElementById("enrichment-ratio")?.value || ""
         };
         localStorage.setItem("neuwoRtdConfig", JSON.stringify(config));
     }
@@ -621,6 +668,7 @@ pbjs.onEvent("bidRequested", function(bidRequest) {
             if (config.iabContentTaxonomyVersion) document.getElementById("iab-content-taxonomy-version").value = config.iabContentTaxonomyVersion;
             if (config.stripQueryParamsForDomains) document.getElementById("strip-query-params-for-domains").value = config.stripQueryParamsForDomains;
             if (config.stripQueryParams) document.getElementById("strip-query-params").value = config.stripQueryParams;
+            if (config.enrichmentRatio) document.getElementById("enrichment-ratio").value = config.enrichmentRatio;
 
             // Restore checkboxes
             document.getElementById("enable-cache").checked = config.enableCache !== false;
@@ -628,6 +676,7 @@ pbjs.onEvent("bidRequested", function(bidRequest) {
             document.getElementById("strip-all-query-params").checked = config.stripAllQueryParams;
             document.getElementById("strip-fragments").checked = config.stripFragments;
             document.getElementById("enable-iab-filtering").checked = config.enableIabFiltering;
+            document.getElementById("enable-enrichment-share").checked = config.enableEnrichmentShare;
         } catch (e) {
             console.error("Error loading saved config:", e);
         }
@@ -641,7 +690,8 @@ pbjs.onEvent("bidRequested", function(bidRequest) {
             "website-to-analyse-url",
             "iab-content-taxonomy-version",
             "strip-query-params-for-domains",
-            "strip-query-params"
+            "strip-query-params",
+            "enrichment-ratio"
         ];
 
         const checkboxIds = [
@@ -649,7 +699,8 @@ pbjs.onEvent("bidRequested", function(bidRequest) {
             "enable-ortb25-fields",
             "strip-all-query-params",
             "strip-fragments",
-            "enable-iab-filtering"
+            "enable-iab-filtering",
+            "enable-enrichment-share"
         ];
 
         // Save on text input change
