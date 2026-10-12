@@ -3274,69 +3274,10 @@ describe("neuwoRtdModule", function () {
       expect(JSON.stringify(bidsConfig), "should not contain the group key").to.not.include("neuwo_rtd_group");
     });
 
-    it("should use the URL parameter neuwo_rtd_group=baseline over the random draw", function () {
+    it("should ignore a neuwo_rtd_group URL parameter", function () {
       paramStub.withArgs("neuwo_rtd_group").returns("baseline");
       randomStub.returns(0.1);
-      expect(groupFor({ enabled: true })).to.equal("baseline");
-    });
-
-    it("should use the URL parameter neuwo_rtd_group=enriched over the random draw", function () {
-      paramStub.withArgs("neuwo_rtd_group").returns("enriched");
-      randomStub.returns(0.95);
       expect(groupFor({ enabled: true })).to.equal("enriched");
-    });
-
-    ["control", "BASELINE"].forEach((value) => {
-      it(`should warn and draw at random when the URL parameter is "${value}"`, function () {
-        paramStub.withArgs("neuwo_rtd_group").returns(value);
-        randomStub.returns(0.1);
-        expect(groupFor({ enabled: true })).to.equal("enriched");
-        expect(logWarnStub.calledOnce, "should warn once").to.be.true;
-        expect(logWarnStub.firstCall.args[2]).to.match(/Ignoring invalid neuwo_rtd_group URL parameter/);
-      });
-    });
-
-    it("should ignore the URL parameter when the feature is off", function () {
-      paramStub.withArgs("neuwo_rtd_group").returns("baseline");
-      expect(groupFor({ enabled: false })).to.equal(null);
-    });
-
-    it("should not send the neuwo_rtd_group URL parameter to the Neuwo API", function () {
-      paramStub.withArgs("neuwo_rtd_group").returns("enriched");
-      const conf = shareConfig({ enabled: true });
-      conf.params.websiteToAnalyseUrl = "https://publisher.works/article?neuwo_rtd_group=enriched&id=5";
-      neuwo.neuwoRtdModule.init(conf);
-
-      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
-
-      expect(server.requests[0].url).to.include("url=" + encodeURIComponent("https://publisher.works/article?id=5"));
-      expect(server.requests[0].url).to.not.include("neuwo_rtd_group");
-    });
-
-    it("should strip the neuwo_rtd_group URL parameter alongside stripQueryParams", function () {
-      paramStub.withArgs("neuwo_rtd_group").returns("control");
-      randomStub.returns(0.1);
-      const conf = shareConfig({ enabled: true });
-      conf.params.websiteToAnalyseUrl = "https://publisher.works/article?neuwo_rtd_group=control&id=5&ref=x";
-      conf.params.stripQueryParams = ["ref"];
-      neuwo.neuwoRtdModule.init(conf);
-
-      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
-
-      expect(server.requests[0].url).to.include("url=" + encodeURIComponent("https://publisher.works/article?id=5"));
-    });
-
-    it("should keep the neuwo_rtd_group URL parameter when the feature is off", function () {
-      paramStub.withArgs("neuwo_rtd_group").returns("enriched");
-      const conf = shareConfig(undefined);
-      conf.params.websiteToAnalyseUrl = "https://publisher.works/article?neuwo_rtd_group=enriched&id=5";
-      neuwo.neuwoRtdModule.init(conf);
-
-      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
-
-      expect(server.requests[0].url).to.include(
-        "url=" + encodeURIComponent("https://publisher.works/article?neuwo_rtd_group=enriched&id=5")
-      );
     });
   });
 });
