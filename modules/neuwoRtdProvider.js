@@ -33,6 +33,14 @@ const MODULE_NAME = "NeuwoRTDModule";
 const MODULE_VERSION = "3.0.0";
 export const DATA_PROVIDER = "www.neuwo.ai";
 
+const ENRICHMENT_GROUP_KEY = "neuwo_rtd_group";
+const ENRICHMENT_GROUPS = {
+  ENRICHED: "enriched",
+  BASELINE: "baseline",
+};
+const DEFAULT_ENRICHMENT_RATIO = 0.9;
+let enrichmentGroup = null;
+
 // Default IAB Content Taxonomy version
 const DEFAULT_IAB_CONTENT_TAXONOMY_VERSION = "2.2";
 
@@ -90,6 +98,7 @@ function init(config, userConsent) {
       params.neuwoApiUrl
     );
   }
+  enrichmentGroup = drawEnrichmentGroup(params.enrichmentShareSettings);
   return true;
 }
 
@@ -112,6 +121,7 @@ function init(config, userConsent) {
  * @param {string[]} [config.params.stripQueryParams] List of specific query parameter names to strip.
  * @param {boolean} [config.params.stripFragments] If true, strips URL fragments (hash).
  * @param {Object} [config.params.iabTaxonomyFilters] Per-tier filtering configuration for IAB Taxonomies.
+ * @param {Object} [config.params.enrichmentShareSettings] Enrichment share settings: `enabled` and `enrichmentRatio`.
  * @param {Object} userConsent The user consent object.
  */
 export function getBidRequestData(
@@ -328,6 +338,23 @@ export function getBidRequestData(
   }
 }
 
+/**
+ * Returns the enrichment share group as ad server targeting for every ad unit.
+ *
+ * @param {string[]} adUnitCodes The ad unit codes of the auction.
+ * @returns {Object} `{ [code]: { neuwo_rtd_group: group } }`, or `{}` when enrichment share is off.
+ */
+export function getTargetingData(adUnitCodes) {
+  if (!enrichmentGroup) {
+    return {};
+  }
+  const targeting = {};
+  adUnitCodes.forEach((code) => {
+    targeting[code] = { [ENRICHMENT_GROUP_KEY]: enrichmentGroup };
+  });
+  return targeting;
+}
+
 //
 // HELPER FUNCTIONS
 //
@@ -344,6 +371,49 @@ function isValidApiUrl(url) {
   } catch (e) {
     return false;
   }
+}
+
+/**
+ * Returns the share of page loads to enrich, falling back to the default when the configured value is invalid.
+ *
+ * @param {Object} settings The enrichment share settings.
+ * @param {number} [settings.enrichmentRatio] Share of page loads in the enriched group, from 0 to 1.
+ * @returns {number} The enrichment ratio to use.
+ */
+function resolveEnrichmentRatio(settings) {
+  const ratio = settings.enrichmentRatio;
+  if (ratio === undefined) {
+    return DEFAULT_ENRICHMENT_RATIO;
+  }
+  if (typeof ratio !== "number" || !(ratio >= 0 && ratio <= 1)) {
+    logWarn(
+      MODULE_NAME,
+      "resolveEnrichmentRatio():",
+      "enrichmentRatio must be a number from 0 to 1, using " + DEFAULT_ENRICHMENT_RATIO + ", got:",
+      ratio
+    );
+    return DEFAULT_ENRICHMENT_RATIO;
+  }
+  return ratio;
+}
+
+/**
+ * Draws the enrichment share group for this page load.
+ *
+ * @param {Object} [settings] The enrichment share settings.
+ * @param {boolean} [settings.enabled] Enrichment share runs only when this is `true`.
+ * @returns {string|null} `"enriched"` or `"baseline"`, or `null` when enrichment share is off.
+ */
+function drawEnrichmentGroup(settings) {
+  if (settings?.enabled !== true) {
+    return null;
+  }
+  const group =
+    Math.random() < resolveEnrichmentRatio(settings)
+      ? ENRICHMENT_GROUPS.ENRICHED
+      : ENRICHMENT_GROUPS.BASELINE;
+  logInfo(MODULE_NAME, "drawEnrichmentGroup():", "Group drawn at random:", group);
+  return group;
 }
 
 /**
@@ -693,6 +763,7 @@ export const neuwoRtdModule = {
   name: MODULE_NAME,
   init,
   getBidRequestData,
+  getTargetingData,
 };
 
 submodule("realTimeData", neuwoRtdModule);

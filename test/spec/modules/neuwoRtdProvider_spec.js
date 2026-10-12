@@ -3073,4 +3073,124 @@ describe("neuwoRtdModule", function () {
       });
     });
   });
+
+  describe("enrichment share", function () {
+    let randomStub;
+    let paramStub;
+    let logWarnStub;
+
+    beforeEach(function () {
+      randomStub = sinon.stub(Math, "random").returns(0.5);
+      paramStub = sinon.stub(utils, "getParameterByName").returns("");
+      logWarnStub = sinon.stub(utils, "logWarn");
+    });
+
+    afterEach(function () {
+      randomStub.restore();
+      paramStub.restore();
+      logWarnStub.restore();
+      neuwo.neuwoRtdModule.init(config());
+    });
+
+    function shareConfig(settings) {
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/enrichment-share";
+      if (settings !== undefined) {
+        conf.params.enrichmentShareSettings = settings;
+      }
+      return conf;
+    }
+
+    function groupFor(settings) {
+      expect(neuwo.neuwoRtdModule.init(shareConfig(settings)), "init should succeed").to.be.true;
+      const targeting = neuwo.neuwoRtdModule.getTargetingData(["div-1"]);
+      return targeting["div-1"] ? targeting["div-1"].neuwo_rtd_group : null;
+    }
+
+    it("should send no group when the settings are absent", function () {
+      expect(groupFor(undefined)).to.equal(null);
+    });
+
+    it("should send no group when enabled is false", function () {
+      expect(groupFor({ enabled: false, enrichmentRatio: 0.9 })).to.equal(null);
+    });
+
+    it("should send no group when enabled is not the boolean true", function () {
+      expect(groupFor({ enabled: "true" })).to.equal(null);
+    });
+
+    it("should put the page load in the enriched group when the random draw is below the ratio", function () {
+      randomStub.returns(0.89);
+      expect(groupFor({ enabled: true, enrichmentRatio: 0.9 })).to.equal("enriched");
+    });
+
+    it("should put the page load in the baseline group when the random draw equals the ratio", function () {
+      randomStub.returns(0.9);
+      expect(groupFor({ enabled: true, enrichmentRatio: 0.9 })).to.equal("baseline");
+    });
+
+    it("should return the group for every ad unit code", function () {
+      randomStub.returns(0.1);
+      neuwo.neuwoRtdModule.init(shareConfig({ enabled: true }));
+
+      expect(neuwo.neuwoRtdModule.getTargetingData(["div-1", "div-2"])).to.deep.equal({
+        "div-1": { neuwo_rtd_group: "enriched" },
+        "div-2": { neuwo_rtd_group: "enriched" },
+      });
+      expect(neuwo.neuwoRtdModule.getTargetingData([]), "no codes give no targeting").to.deep.equal({});
+    });
+
+    it("should use 0.9 without a warning when enrichmentRatio is absent", function () {
+      randomStub.returns(0.89);
+      expect(groupFor({ enabled: true })).to.equal("enriched");
+      randomStub.returns(0.9);
+      expect(groupFor({ enabled: true })).to.equal("baseline");
+      expect(logWarnStub.called, "should not warn").to.be.false;
+    });
+
+    [
+      { label: 'the string "0.5"', value: "0.5" },
+      { label: "NaN", value: NaN },
+      { label: "-0.1", value: -0.1 },
+      { label: "1.1", value: 1.1 },
+    ].forEach(({ label, value }) => {
+      it(`should warn and use 0.9 when enrichmentRatio is ${label}`, function () {
+        randomStub.returns(0.89);
+        expect(groupFor({ enabled: true, enrichmentRatio: value })).to.equal("enriched");
+        randomStub.returns(0.95);
+        expect(groupFor({ enabled: true, enrichmentRatio: value })).to.equal("baseline");
+        expect(logWarnStub.calledTwice, "should warn on each draw").to.be.true;
+        expect(logWarnStub.firstCall.args[2]).to.match(/enrichmentRatio must be a number from 0 to 1/);
+      });
+    });
+
+    it("should put every page load in the baseline group when enrichmentRatio is 0", function () {
+      randomStub.returns(0);
+      expect(groupFor({ enabled: true, enrichmentRatio: 0 })).to.equal("baseline");
+    });
+
+    it("should put every page load in the enriched group when enrichmentRatio is 1", function () {
+      randomStub.returns(0.9999);
+      expect(groupFor({ enabled: true, enrichmentRatio: 1 })).to.equal("enriched");
+    });
+
+    it("should clear the group when init runs again with the feature off", function () {
+      randomStub.returns(0.1);
+      expect(groupFor({ enabled: true })).to.equal("enriched");
+      expect(groupFor(undefined)).to.equal(null);
+    });
+
+    it("should keep the group when init fails", function () {
+      randomStub.returns(0.1);
+      expect(groupFor({ enabled: true })).to.equal("enriched");
+      randomStub.returns(0.95);
+      const noToken = shareConfig({ enabled: true });
+      delete noToken.params.neuwoApiToken;
+
+      expect(neuwo.neuwoRtdModule.init(noToken), "init should fail").to.be.false;
+      expect(neuwo.neuwoRtdModule.getTargetingData(["div-1"])).to.deep.equal({
+        "div-1": { neuwo_rtd_group: "enriched" },
+      });
+    });
+  });
 });
