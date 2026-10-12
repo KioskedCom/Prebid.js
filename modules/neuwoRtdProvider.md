@@ -257,7 +257,8 @@ Manager (GAM):
 - **enriched**: the module works as usual;
 - **baseline**: the module makes no Neuwo API call and adds no Neuwo data to the bid request.
 
-The feature is off unless `enrichmentShareSettings.enabled` is `true`.
+The split is off unless `enrichmentShareSettings.enabled` is `true`. While it is off, every page load is enriched and
+the GAM key-value is still sent, with the value `enriched`.
 
 ```javascript
 pbjs.setConfig({
@@ -286,8 +287,7 @@ pbjs.setConfig({
 - The group is drawn once per page load, when the module initialises. A single-page app keeps the same group until the
   page reloads.
 - `enrichmentRatio` is the share of page loads in the enriched group, from `0` to `1`. Any other value logs a warning
-  and `0.9` is used. `1` puts every page load in the enriched group, which is useful for checking the GAM setup before
-  the split starts; `0` puts every page load in the baseline group.
+  and `0.9` is used. `1` puts every page load in the enriched group; `0` puts every page load in the baseline group.
 - Every ad unit gets the GAM key-value `neuwo_rtd_group` with the value `enriched` or `baseline`, including ad units
   without bids. It is set as ad server targeting, so `pbjs.setTargetingForGPTAsync()` applies it; wrappers that set GPT
   targeting themselves can read it with `pbjs.getAdserverTargetingForAdUnitCode()`.
@@ -300,7 +300,8 @@ pbjs.setConfig({
 2. In the key's settings, choose "Include values in the Key-values dimension & add key as custom dimension".
 3. GAM reports a key only for ad requests made after it was set up; it does not fill in earlier traffic.
 
-Revenue per group then comes from a GAM report split by the `neuwo_rtd_group` custom dimension.
+Revenue per group then comes from a GAM report split by the `neuwo_rtd_group` custom dimension. Because the key is sent
+while the split is off, the setup can be checked in GAM before the split starts.
 
 **Testing:** set `enrichmentRatio` to `1` or `0` to put every page load in one group.
 

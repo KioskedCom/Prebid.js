@@ -3107,16 +3107,19 @@ describe("neuwoRtdModule", function () {
       return targeting["div-1"] ? targeting["div-1"].neuwo_rtd_group : null;
     }
 
-    it("should send no group when the settings are absent", function () {
-      expect(groupFor(undefined)).to.equal(null);
+    it("should send the enriched group when the settings are absent", function () {
+      randomStub.returns(0.95);
+      expect(groupFor(undefined)).to.equal("enriched");
     });
 
-    it("should send no group when enabled is false", function () {
-      expect(groupFor({ enabled: false, enrichmentRatio: 0.9 })).to.equal(null);
+    it("should send the enriched group when enabled is false", function () {
+      randomStub.returns(0.95);
+      expect(groupFor({ enabled: false, enrichmentRatio: 0.9 })).to.equal("enriched");
     });
 
-    it("should send no group when enabled is not the boolean true", function () {
-      expect(groupFor({ enabled: "true" })).to.equal(null);
+    it("should send the enriched group when enabled is not the boolean true", function () {
+      randomStub.returns(0.95);
+      expect(groupFor({ enabled: "true", enrichmentRatio: 0 })).to.equal("enriched");
     });
 
     it("should put the page load in the enriched group when the random draw is below the ratio", function () {
@@ -3174,10 +3177,10 @@ describe("neuwoRtdModule", function () {
       expect(groupFor({ enabled: true, enrichmentRatio: 1 })).to.equal("enriched");
     });
 
-    it("should clear the group when init runs again with the feature off", function () {
-      randomStub.returns(0.1);
-      expect(groupFor({ enabled: true })).to.equal("enriched");
-      expect(groupFor(undefined)).to.equal(null);
+    it("should go back to the enriched group when init runs again with the feature off", function () {
+      randomStub.returns(0.95);
+      expect(groupFor({ enabled: true })).to.equal("baseline");
+      expect(groupFor(undefined)).to.equal("enriched");
     });
 
     it("should keep the group when init fails", function () {

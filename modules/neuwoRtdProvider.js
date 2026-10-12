@@ -39,7 +39,7 @@ const ENRICHMENT_GROUPS = {
   BASELINE: "baseline",
 };
 const DEFAULT_ENRICHMENT_RATIO = 0.9;
-let enrichmentGroup = null;
+let enrichmentGroup = ENRICHMENT_GROUPS.ENRICHED;
 
 // Default IAB Content Taxonomy version
 const DEFAULT_IAB_CONTENT_TAXONOMY_VERSION = "2.2";
@@ -348,12 +348,9 @@ export function getBidRequestData(
  * Returns the enrichment share group as ad server targeting for every ad unit.
  *
  * @param {string[]} adUnitCodes The ad unit codes of the auction.
- * @returns {Object} `{ [code]: { neuwo_rtd_group: group } }`, or `{}` when enrichment share is off.
+ * @returns {Object} `{ [code]: { neuwo_rtd_group: group } }`; the group is `enriched` while enrichment share is off.
  */
 export function getTargetingData(adUnitCodes) {
-  if (!enrichmentGroup) {
-    return {};
-  }
   const targeting = {};
   adUnitCodes.forEach((code) => {
     targeting[code] = { [ENRICHMENT_GROUP_KEY]: enrichmentGroup };
@@ -408,11 +405,11 @@ function resolveEnrichmentRatio(settings) {
  *
  * @param {Object} [settings] The enrichment share settings.
  * @param {boolean} [settings.enabled] Enrichment share runs only when this is `true`.
- * @returns {string|null} `"enriched"` or `"baseline"`, or `null` when enrichment share is off.
+ * @returns {string} `"enriched"` or `"baseline"`; always `"enriched"` when enrichment share is off.
  */
 function drawEnrichmentGroup(settings) {
   if (settings?.enabled !== true) {
-    return null;
+    return ENRICHMENT_GROUPS.ENRICHED;
   }
   const group =
     Math.random() < resolveEnrichmentRatio(settings)
