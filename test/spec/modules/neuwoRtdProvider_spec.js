@@ -3273,5 +3273,32 @@ describe("neuwoRtdModule", function () {
       );
       expect(JSON.stringify(bidsConfig), "should not contain the group key").to.not.include("neuwo_rtd_group");
     });
+
+    it("should use the URL parameter neuwo_rtd_group=baseline over the random draw", function () {
+      paramStub.withArgs("neuwo_rtd_group").returns("baseline");
+      randomStub.returns(0.1);
+      expect(groupFor({ enabled: true })).to.equal("baseline");
+    });
+
+    it("should use the URL parameter neuwo_rtd_group=enriched over the random draw", function () {
+      paramStub.withArgs("neuwo_rtd_group").returns("enriched");
+      randomStub.returns(0.95);
+      expect(groupFor({ enabled: true })).to.equal("enriched");
+    });
+
+    ["control", "BASELINE"].forEach((value) => {
+      it(`should warn and draw at random when the URL parameter is "${value}"`, function () {
+        paramStub.withArgs("neuwo_rtd_group").returns(value);
+        randomStub.returns(0.1);
+        expect(groupFor({ enabled: true })).to.equal("enriched");
+        expect(logWarnStub.calledOnce, "should warn once").to.be.true;
+        expect(logWarnStub.firstCall.args[2]).to.match(/Ignoring invalid neuwo_rtd_group URL parameter/);
+      });
+    });
+
+    it("should ignore the URL parameter when the feature is off", function () {
+      paramStub.withArgs("neuwo_rtd_group").returns("baseline");
+      expect(groupFor({ enabled: false })).to.equal(null);
+    });
   });
 });

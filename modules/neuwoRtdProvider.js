@@ -23,6 +23,7 @@ import { submodule } from "../src/hook.js";
 import { getRefererInfo } from "../src/refererDetection.js";
 import {
   deepSetValue,
+  getParameterByName,
   logError,
   logInfo,
   logWarn,
@@ -405,6 +406,7 @@ function resolveEnrichmentRatio(settings) {
 
 /**
  * Draws the enrichment share group for this page load.
+ * A valid `neuwo_rtd_group` URL parameter overrides the random draw.
  *
  * @param {Object} [settings] The enrichment share settings.
  * @param {boolean} [settings.enabled] Enrichment share runs only when this is `true`.
@@ -413,6 +415,19 @@ function resolveEnrichmentRatio(settings) {
 function drawEnrichmentGroup(settings) {
   if (settings?.enabled !== true) {
     return null;
+  }
+  const override = getParameterByName(ENRICHMENT_GROUP_KEY);
+  if (override === ENRICHMENT_GROUPS.ENRICHED || override === ENRICHMENT_GROUPS.BASELINE) {
+    logInfo(MODULE_NAME, "drawEnrichmentGroup():", "Group set by URL parameter:", override);
+    return override;
+  }
+  if (override) {
+    logWarn(
+      MODULE_NAME,
+      "drawEnrichmentGroup():",
+      "Ignoring invalid " + ENRICHMENT_GROUP_KEY + " URL parameter:",
+      override
+    );
   }
   const group =
     Math.random() < resolveEnrichmentRatio(settings)
