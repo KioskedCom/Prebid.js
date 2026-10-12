@@ -303,7 +303,8 @@ pbjs.setConfig({
 Revenue per group then comes from a GAM report split by the `neuwo_rtd_group` custom dimension.
 
 **Testing:** while the feature is enabled, add `?neuwo_rtd_group=enriched` or `?neuwo_rtd_group=baseline` to the page
-URL to force a group. Other values are ignored with a warning.
+URL to force a group. Other values are ignored with a warning. The parameter is removed from the page URL sent to the
+Neuwo API, so a forced page is analysed as the same page real visitors see.
 
 > **Important:** if Neuwo data is copied elsewhere on the page, for example into GAM Publisher Provided Signals or a
 > `window` variable, make sure it is never reused on baseline page loads. Otherwise the baseline group receives Neuwo

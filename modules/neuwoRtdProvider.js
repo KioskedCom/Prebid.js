@@ -164,10 +164,13 @@ export function getBidRequestData(
     callback();
     return;
   }
+  const groupParamInUrl = enrichmentGroup && getParameterByName(ENRICHMENT_GROUP_KEY);
   const processedUrl = cleanUrl(rawUrl, {
     stripAllQueryParams,
     stripQueryParamsForDomains,
-    stripQueryParams,
+    stripQueryParams: groupParamInUrl
+      ? [...(Array.isArray(stripQueryParams) ? stripQueryParams : []), ENRICHMENT_GROUP_KEY]
+      : stripQueryParams,
     stripFragments,
   });
   const pageUrl = encodeURIComponent(processedUrl);
