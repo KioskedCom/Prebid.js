@@ -137,6 +137,12 @@ export function getBidRequestData(
     config
   );
 
+  if (enrichmentGroup === ENRICHMENT_GROUPS.BASELINE) {
+    logInfo(MODULE_NAME, "getBidRequestData():", "Baseline group: skipping the Neuwo API call");
+    callback();
+    return;
+  }
+
   const {
     websiteToAnalyseUrl,
     neuwoApiUrl,

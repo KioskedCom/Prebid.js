@@ -3192,5 +3192,86 @@ describe("neuwoRtdModule", function () {
         "div-1": { neuwo_rtd_group: "enriched" },
       });
     });
+
+    it("should call the API as before when the settings are absent", function () {
+      const conf = shareConfig(undefined);
+      expect(neuwo.neuwoRtdModule.init(conf)).to.be.true;
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+
+      expect(server.requests.length, "should call the Neuwo API").to.equal(1);
+    });
+
+    it("should skip the API call and inject nothing in the baseline group", function () {
+      randomStub.returns(0.95);
+      const conf = shareConfig({ enabled: true });
+      expect(neuwo.neuwoRtdModule.init(conf)).to.be.true;
+      const bidsConfig = bidsConfiglike();
+      const callback = sinon.spy();
+
+      neuwo.getBidRequestData(bidsConfig, callback, conf, "consent data");
+
+      expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+      expect(bidsConfig.ortb2Fragments.global, "should inject nothing").to.deep.equal({});
+      expect(callback.calledOnce, "should continue the auction once").to.be.true;
+    });
+
+    it("should keep the baseline group across auctions on the same page load", function () {
+      randomStub.returns(0.95);
+      const conf = shareConfig({ enabled: true });
+      neuwo.neuwoRtdModule.init(conf);
+      randomStub.returns(0.1);
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+
+      expect(server.requests.length, "no auction should call the Neuwo API").to.equal(0);
+      expect(neuwo.neuwoRtdModule.getTargetingData(["div-1"])["div-1"].neuwo_rtd_group).to.equal("baseline");
+    });
+
+    it("should make no API call when enrichmentRatio is 0", function () {
+      randomStub.returns(0);
+      const conf = shareConfig({ enabled: true, enrichmentRatio: 0 });
+      neuwo.neuwoRtdModule.init(conf);
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+
+      expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+    });
+
+    it("should still report the enriched group when the API call fails", function (done) {
+      randomStub.returns(0.1);
+      const conf = shareConfig({ enabled: true });
+      neuwo.neuwoRtdModule.init(conf);
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {
+        expect(neuwo.neuwoRtdModule.getTargetingData(["div-1"])["div-1"].neuwo_rtd_group).to.equal("enriched");
+        done();
+      }, conf, "consent data");
+
+      server.requests[0].respond(500, {}, "Server error");
+    });
+
+    it("should never put the group where bidders can see it", function () {
+      randomStub.returns(0.1);
+      const conf = shareConfig({ enabled: true });
+      neuwo.neuwoRtdModule.init(conf);
+      const bidsConfig = {
+        adUnits: [{ code: "div-1", ortb2Imp: {} }],
+        ortb2Fragments: { global: {}, bidder: {} },
+      };
+
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      server.requests[0].respond(
+        200,
+        { "Content-Type": "application/json; encoding=UTF-8" },
+        JSON.stringify(getNeuwoApiResponse())
+      );
+
+      expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name, "should still enrich").to.equal(
+        neuwo.DATA_PROVIDER
+      );
+      expect(JSON.stringify(bidsConfig), "should not contain the group key").to.not.include("neuwo_rtd_group");
+    });
   });
 });
