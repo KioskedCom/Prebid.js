@@ -1,6 +1,6 @@
 /**
  * @module neuwoRtdProvider
- * @version 3.0.0
+ * @version 3.1.0
  * @author Grzegorz Malisz
  * @see {project-root-directory}/integrationExamples/gpt/neuwoRtdProvider_example.html for an example/testing page.
  * @see {project-root-directory}/test/spec/modules/neuwoRtdProvider_spec.js for unit tests.
@@ -31,7 +31,7 @@ import {
 } from "../src/utils.js";
 
 const MODULE_NAME = "NeuwoRTDModule";
-const MODULE_VERSION = "3.0.0";
+const MODULE_VERSION = "3.1.0";
 export const DATA_PROVIDER = "www.neuwo.ai";
 
 const ENRICHMENT_GROUP_KEY = "neuwo_rtd_group";

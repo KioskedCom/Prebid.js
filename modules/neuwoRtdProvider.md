@@ -86,20 +86,23 @@ pbjs.setConfig({
 
 **Parameters**
 
-| Name                                | Type     | Required | Default | Description                                                                                                                                                                                                                                                                                                                                                                |
-| :---------------------------------- | :------- | :------- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                              | String   | Yes      |         | The name of the module, which is `NeuwoRTDModule`.                                                                                                                                                                                                                                                                                                                         |
-| `params`                            | Object   | Yes      |         | Container for module-specific parameters.                                                                                                                                                                                                                                                                                                                                  |
-| `params.neuwoApiUrl`                | String   | Yes      |         | The Neuwo Edge API endpoint URL: an absolute URL whose path ends in `/edge/v1/iab`. Other URLs log a warning.                                                                                                                                                                                                                                                              |
-| `params.neuwoApiToken`              | String   | Yes      |         | Your unique API token provided by Neuwo.                                                                                                                                                                                                                                                                                                                                   |
-| `params.iabContentTaxonomyVersion`  | String   | No       | `'2.2'` | Specifies the version of the IAB Content Taxonomy to be used. Supported values: `'1.0'`, `'2.2'`, `'3.0'`.                                                                                                                                                                                                                                                                 |
-| `params.enableCache`                | Boolean  | No       | `true`  | If `true`, caches API responses to avoid redundant requests for the same page during the session. Set to `false` to disable caching and make a fresh API call on every bid request.                                                                                                                                                                                        |
-| `params.enableOrtb25Fields`         | Boolean  | No       | `true`  | If `true`, populates OpenRTB 2.5 category fields (`ortb2.site.cat`, `ortb2.site.sectioncat`, `ortb2.site.pagecat`, `ortb2.site.content.cat`) with IAB Content Taxonomy 1.0 segments. See [OpenRTB 2.5 Category Fields](#openrtb-25-category-fields) section below for details.                                                                                             |
-| `params.stripAllQueryParams`        | Boolean  | No       | `false` | If `true`, strips all query parameters from the URL before analysis. Takes precedence over other stripping options.                                                                                                                                                                                                                                                        |
-| `params.stripQueryParamsForDomains` | String[] | No       | `[]`    | List of domains for which to strip **all** query parameters. When a domain matches, all query params are removed for that domain and all its subdomains (e.g., `'example.com'` strips params for both `'example.com'` and `'sub.example.com'`). This option takes precedence over `stripQueryParams` for matching domains.                                                 |
-| `params.stripQueryParams`           | String[] | No       | `[]`    | List of specific query parameter names to strip from the URL (e.g., `['utm_source', 'fbclid']`). Other parameters are preserved. Only applies when the domain does not match `stripQueryParamsForDomains`.                                                                                                                                                                 |
-| `params.stripFragments`             | Boolean  | No       | `false` | If `true`, strips URL fragments (hash, e.g., `#section`) from the URL before analysis.                                                                                                                                                                                                                                                                                     |
-| `params.iabTaxonomyFilters`         | Object   | No       |         | Per-tier filtering configuration for IAB taxonomies. Allows filtering by relevance threshold and limiting the count of categories per tier. Filters configured for `ContentTier1` and `ContentTier2` are automatically applied to IAB Content Taxonomy 1.0 when `enableOrtb25Fields` is `true`. See [IAB Taxonomy Filtering](#iab-taxonomy-filtering) section for details. |
+| Name                                             | Type     | Required | Default | Description                                                                                                                                                                                                                                                                                                                                                                |
+| :----------------------------------------------- | :------- | :------- | :------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                                           | String   | Yes      |         | The name of the module, which is `NeuwoRTDModule`.                                                                                                                                                                                                                                                                                                                         |
+| `params`                                         | Object   | Yes      |         | Container for module-specific parameters.                                                                                                                                                                                                                                                                                                                                  |
+| `params.neuwoApiUrl`                             | String   | Yes      |         | The Neuwo Edge API endpoint URL: an absolute URL whose path ends in `/edge/v1/iab`. Other URLs log a warning.                                                                                                                                                                                                                                                              |
+| `params.neuwoApiToken`                           | String   | Yes      |         | Your unique API token provided by Neuwo.                                                                                                                                                                                                                                                                                                                                   |
+| `params.iabContentTaxonomyVersion`               | String   | No       | `'2.2'` | Specifies the version of the IAB Content Taxonomy to be used. Supported values: `'1.0'`, `'2.2'`, `'3.0'`.                                                                                                                                                                                                                                                                 |
+| `params.enableCache`                             | Boolean  | No       | `true`  | If `true`, caches API responses to avoid redundant requests for the same page during the session. Set to `false` to disable caching and make a fresh API call on every bid request.                                                                                                                                                                                        |
+| `params.enableOrtb25Fields`                      | Boolean  | No       | `true`  | If `true`, populates OpenRTB 2.5 category fields (`ortb2.site.cat`, `ortb2.site.sectioncat`, `ortb2.site.pagecat`, `ortb2.site.content.cat`) with IAB Content Taxonomy 1.0 segments. See [OpenRTB 2.5 Category Fields](#openrtb-25-category-fields) section below for details.                                                                                             |
+| `params.stripAllQueryParams`                     | Boolean  | No       | `false` | If `true`, strips all query parameters from the URL before analysis. Takes precedence over other stripping options.                                                                                                                                                                                                                                                        |
+| `params.stripQueryParamsForDomains`              | String[] | No       | `[]`    | List of domains for which to strip **all** query parameters. When a domain matches, all query params are removed for that domain and all its subdomains (e.g., `'example.com'` strips params for both `'example.com'` and `'sub.example.com'`). This option takes precedence over `stripQueryParams` for matching domains.                                                 |
+| `params.stripQueryParams`                        | String[] | No       | `[]`    | List of specific query parameter names to strip from the URL (e.g., `['utm_source', 'fbclid']`). Other parameters are preserved. Only applies when the domain does not match `stripQueryParamsForDomains`.                                                                                                                                                                 |
+| `params.stripFragments`                          | Boolean  | No       | `false` | If `true`, strips URL fragments (hash, e.g., `#section`) from the URL before analysis.                                                                                                                                                                                                                                                                                     |
+| `params.iabTaxonomyFilters`                      | Object   | No       |         | Per-tier filtering configuration for IAB taxonomies. Allows filtering by relevance threshold and limiting the count of categories per tier. Filters configured for `ContentTier1` and `ContentTier2` are automatically applied to IAB Content Taxonomy 1.0 when `enableOrtb25Fields` is `true`. See [IAB Taxonomy Filtering](#iab-taxonomy-filtering) section for details. |
+| `params.enrichmentShareSettings`                 | Object   | No       |         | Splits page loads into an enriched and a baseline group so the revenue Neuwo data adds can be measured. See [Enrichment Share](#enrichment-share-baseline-group).                                                                                                                                                                                                          |
+| `params.enrichmentShareSettings.enabled`         | Boolean  | No       | `false` | If `true`, turns the split on.                                                                                                                                                                                                                                                                                                                                             |
+| `params.enrichmentShareSettings.enrichmentRatio` | Number   | No       | `0.9`   | Share of page loads in the enriched group, from `0` to `1`. Invalid values log a warning and `0.9` is used.                                                                                                                                                                                                                                                                |
 
 ### API Response Caching
 
@@ -246,6 +249,66 @@ pbjs.setConfig({
 
 When `iabTaxonomyFilters` are configured, the same filters applied to `ContentTier1` and `ContentTier2` are automatically applied to IAB Content Taxonomy 1.0 data used for these fields. Note that IAB Content Taxonomy 1.0 only has tiers 1 and 2, so `ContentTier3` filters are ignored for these fields.
 
+### Enrichment Share (Baseline Group)
+
+Enrichment share splits page loads into two groups, so the revenue that Neuwo data adds can be measured in Google Ad
+Manager (GAM):
+
+- **enriched**: the module works as usual;
+- **baseline**: the module makes no Neuwo API call and adds no Neuwo data to the bid request.
+
+The feature is off unless `enrichmentShareSettings.enabled` is `true`.
+
+```javascript
+pbjs.setConfig({
+  realTimeData: {
+    auctionDelay: 500,
+    dataProviders: [
+      {
+        name: "NeuwoRTDModule",
+        waitForIt: true,
+        params: {
+          neuwoApiUrl: "<Your Neuwo Edge API Endpoint URL>",
+          neuwoApiToken: "<Your Neuwo API Token>",
+          enrichmentShareSettings: {
+            enabled: true,
+            enrichmentRatio: 0.9,
+          },
+        },
+      },
+    ],
+  },
+});
+```
+
+**How it works:**
+
+- The group is drawn once per page load, when the module initialises. A single-page app keeps the same group until the
+  page reloads.
+- `enrichmentRatio` is the share of page loads in the enriched group, from `0` to `1`. Any other value logs a warning
+  and `0.9` is used. `1` puts every page load in the enriched group, which is useful for checking the GAM setup before
+  the split starts; `0` puts every page load in the baseline group.
+- Every ad unit gets the GAM key-value `neuwo_rtd_group` with the value `enriched` or `baseline`, including ad units
+  without bids. It is set as ad server targeting, so `pbjs.setTargetingForGPTAsync()` applies it; wrappers that set GPT
+  targeting themselves can read it with `pbjs.getAdserverTargetingForAdUnitCode()`.
+- The group goes to the ad server only. It is not added to bid requests, so bidders cannot treat the two groups
+  differently.
+
+**GAM setup, before switching it on:**
+
+1. Create the key `neuwo_rtd_group` with the predefined values `enriched` and `baseline`.
+2. In the key's settings, choose "Include values in the Key-values dimension & add key as custom dimension".
+3. GAM reports a key only for ad requests made after it was set up; it does not fill in earlier traffic.
+
+Revenue per group then comes from a GAM report split by the `neuwo_rtd_group` custom dimension.
+
+**Testing:** while the feature is enabled, add `?neuwo_rtd_group=enriched` or `?neuwo_rtd_group=baseline` to the page
+URL to force a group. Other values are ignored with a warning.
+
+> **Important:** if Neuwo data is copied elsewhere on the page, for example into GAM Publisher Provided Signals or a
+> `window` variable, make sure it is never reused on baseline page loads. Otherwise the baseline group receives Neuwo
+> data and the measured difference shrinks.
+
 ## Accessing Neuwo Data Outside Prebid.js
 
 The Neuwo RTD module enriches bid requests with contextual data that can be accessed in application code for analytics, targeting, integration with Google Ad Manager as [Publisher Provided Signals (PPS)](https://support.google.com/admanager/answer/15287325) or other purposes. The enriched data is available through Prebid.js events.
@@ -388,4 +451,4 @@ npx gulp build --modules=rtdModule,neuwoRtdProvider
 
 This command creates optimised, minified code typically used on websites.
 
-> Version **3.0.0**
+> Version **3.1.0**
