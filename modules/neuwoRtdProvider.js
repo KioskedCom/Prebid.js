@@ -853,6 +853,16 @@ export function injectIabCategories(
     audienceData
   );
 
+  // ------------- CUSTOM ----------------
+  if (typeof window !== 'undefined') {
+    window._neuwoData = {
+      content: contentData,
+      audience: audienceData
+    };
+  }
+
+  // -----------------------------
+
   // Inject content and audience data independently to avoid sending empty structures
   if (contentData.segment.length > 0) {
     injectOrtbData(reqBidsConfigObj, "site.content.data", [contentData]);
