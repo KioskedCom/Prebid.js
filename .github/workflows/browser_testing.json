@@ -1,17 +1,29 @@
 {
   "ChromeHeadless": {
     "bsName": "chrome",
-    "coverage": true
+    "wdioName": "chrome",
+    "coverage": true,
+    "versions": {
+      "113.0": {
+        "coverage": false,
+        "chrome": "113.0.5672.0",
+        "name": "ChromeNoSandbox",
+        "wdioName": null
+      }
+    }
   },
   "EdgeHeadless": {
     "bsName": "edge",
+    "wdioName": "msedge",
     "runsOn": "windows-latest"
   },
   "SafariNative": {
-    "bsName": "safari",
-    "runsOn": "macos-latest"
+    "wdioName": "safari",
+    "runsOn": "macos-26",
+    "bsName": "safari"
   },
   "FirefoxHeadless": {
+    "wdioName": "firefox",
     "bsName": "firefox"
   }
 }

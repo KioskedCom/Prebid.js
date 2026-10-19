@@ -30,8 +30,16 @@ function newWebpackConfig(codeCoverage, disableFeatures) {
     loader: 'babel-loader',
     options: {
       cacheDirectory: cacheDir, cacheCompression: false,
-      presets: [['@babel/preset-env', {modules: 'commonjs'}]],
-      plugins: codeCoverage ? ['babel-plugin-istanbul'] : []
+      plugins: ['@babel/plugin-transform-modules-commonjs'].concat(codeCoverage ? [['babel-plugin-istanbul', {
+        // The coverage instrumentation options below were written by a bot (Claude Code).
+        // Keep the specs out of coverage: they run start to finish by definition, so counting them
+        // swamps the totals for the code they exercise. `exclude` is anchored to `cwd`, which has to be
+        // the precompiled tree because that's where the files being instrumented live. Both options are
+        // needed - `cwd` on its own is overridden by the nyc config lookup, which walks up to the
+        // nearest package.json and resets `cwd` to the repo root.
+        cwd: helpers.getPrecompiledPath(),
+        exclude: ['test/**']
+      }]] : [])
     }
   })
   return webpackConfig;
@@ -85,13 +93,19 @@ function setReporters(karmaConf, codeCoverage, browserstack, chunkNo) {
 }
 
 function setBrowsers(karmaConf, browserstack) {
+  karmaConf.customLaunchers = karmaConf.customLaunchers || {};
+  karmaConf.customLaunchers.ChromeNoSandbox = {
+    base: 'ChromeHeadless',
+    // disable sandbox - necessary within Docker and when using versions installed through @puppeteer/browsers
+    flags: ['--no-sandbox']
+  }
   if (browserstack) {
     karmaConf.browserStack = {
       username: process.env.BROWSERSTACK_USERNAME,
       accessKey: process.env.BROWSERSTACK_ACCESS_KEY,
       build: process.env.BROWSERSTACK_BUILD_NAME
     }
-    if (process.env.TRAVIS) {
+    if (process.env.BROWSERSTACK_LOCAL_IDENTIFIER) {
       karmaConf.browserStack.startTunnel = false;
       karmaConf.browserStack.tunnelIdentifier = process.env.BROWSERSTACK_LOCAL_IDENTIFIER;
     }
@@ -100,14 +114,7 @@ function setBrowsers(karmaConf, browserstack) {
   } else {
     var isDocker = require('is-docker')();
     if (isDocker) {
-      karmaConf.customLaunchers = karmaConf.customLaunchers || {};
-      karmaConf.customLaunchers.ChromeCustom = {
-        base: 'ChromeHeadless',
-        // We must disable the Chrome sandbox when running Chrome inside Docker (Chrome's sandbox needs
-        // more permissions than Docker allows by default)
-        flags: ['--no-sandbox']
-      }
-      karmaConf.browsers = ['ChromeCustom'];
+      karmaConf.browsers = ['ChromeNoSandbox'];
     } else {
       karmaConf.browsers = ['ChromeHeadless'];
     }

@@ -1,6 +1,6 @@
 /**
  * @module neuwoRtdProvider
- * @version 2.2.6
+ * @version 3.1.0
  * @author Grzegorz Malisz
  * @see {project-root-directory}/integrationExamples/gpt/neuwoRtdProvider_example.html for an example/testing page.
  * @see {project-root-directory}/test/spec/modules/neuwoRtdProvider_spec.js for unit tests.
@@ -30,8 +30,16 @@ import {
 } from "../src/utils.js";
 
 const MODULE_NAME = "NeuwoRTDModule";
-const MODULE_VERSION = "2.2.6";
+const MODULE_VERSION = "3.1.0";
 export const DATA_PROVIDER = "www.neuwo.ai";
+
+const ENRICHMENT_GROUP_KEY = "neuwo_rtd_group";
+const ENRICHMENT_GROUPS = {
+  ENRICHED: "enriched",
+  BASELINE: "baseline",
+};
+const DEFAULT_ENRICHMENT_RATIO = 0.9;
+let enrichmentGroup = ENRICHMENT_GROUPS.ENRICHED;
 
 // Default IAB Content Taxonomy version
 const DEFAULT_IAB_CONTENT_TAXONOMY_VERSION = "2.2";
@@ -82,21 +90,27 @@ function init(config, userConsent) {
     logError(MODULE_NAME, "init():", "Missing Neuwo API Token");
     return false;
   }
+  if (!isValidApiUrl(params.neuwoApiUrl)) {
+    logWarn(
+      MODULE_NAME,
+      "init():",
+      "There may be a problem with the Neuwo API URL: expected an absolute URL ending in /edge/v1/iab, got:",
+      params.neuwoApiUrl
+    );
+  }
+  enrichmentGroup = drawEnrichmentGroup(params.enrichmentShareSettings);
   return true;
 }
 
 /**
  * Fetches contextual data from the Neuwo API and enriches the bid request object with IAB categories.
  * Uses cached response if available to avoid redundant API calls.
- * Automatically detects API capabilities from the endpoint URL format:
- * - URLs containing "/v1/iab" use GET requests with server-side filtering
- * - Other URLs use GET requests with client-side filtering (legacy support)
  *
  * @param {Object} reqBidsConfigObj The bid request configuration object.
  * @param {function} callback The callback function to continue the auction.
  * @param {Object} config The module configuration.
  * @param {Object} config.params Configuration parameters.
- * @param {string} config.params.neuwoApiUrl The Neuwo API endpoint URL.
+ * @param {string} config.params.neuwoApiUrl The Neuwo Edge API /edge/v1/iab endpoint URL.
  * @param {string} config.params.neuwoApiToken The Neuwo API authentication token.
  * @param {string} [config.params.websiteToAnalyseUrl] Optional URL to analyze instead of current page.
  * @param {string} [config.params.iabContentTaxonomyVersion="2.2"] IAB Content Taxonomy version.
@@ -107,6 +121,7 @@ function init(config, userConsent) {
  * @param {string[]} [config.params.stripQueryParams] List of specific query parameter names to strip.
  * @param {boolean} [config.params.stripFragments] If true, strips URL fragments (hash).
  * @param {Object} [config.params.iabTaxonomyFilters] Per-tier filtering configuration for IAB Taxonomies.
+ * @param {Object} [config.params.enrichmentShareSettings] Enrichment share settings: `enabled` and `enrichmentRatio`.
  * @param {Object} userConsent The user consent object.
  */
 export function getBidRequestData(
@@ -121,6 +136,12 @@ export function getBidRequestData(
     "starting getBidRequestData",
     config
   );
+
+  if (enrichmentGroup === ENRICHMENT_GROUPS.BASELINE) {
+    logInfo(MODULE_NAME, "getBidRequestData():", "Baseline group: skipping the Neuwo API call");
+    callback();
+    return;
+  }
 
   const {
     websiteToAnalyseUrl,
@@ -153,24 +174,6 @@ export function getBidRequestData(
     IAB_CONTENT_TAXONOMY_MAP[iabContentTaxonomyVersion] ||
     IAB_CONTENT_TAXONOMY_MAP[DEFAULT_IAB_CONTENT_TAXONOMY_VERSION];
 
-  // Detect whether the endpoint supports multi-taxonomy responses and server-side filtering.
-  // Use URL pathname to avoid false positives when "/v1/iab" appears in query params.
-  let isIabEndpoint = false;
-  try {
-    isIabEndpoint = new URL(neuwoApiUrl).pathname.includes("/v1/iab");
-  } catch (e) {
-    isIabEndpoint = neuwoApiUrl.split("?")[0].includes("/v1/iab");
-  }
-
-  // Warn if OpenRTB 2.5 feature enabled with legacy endpoint
-  if (enableOrtb25Fields && !isIabEndpoint) {
-    logWarn(
-      MODULE_NAME,
-      "getBidRequestData():",
-      "OpenRTB 2.5 category fields require the /v1/iab endpoint"
-    );
-  }
-
   const joiner = neuwoApiUrl.indexOf("?") < 0 ? "?" : "&";
   const urlParams = [
     "token=" + neuwoApiToken,
@@ -179,40 +182,27 @@ export function getBidRequestData(
   ];
 
   // Request both IAB Content Taxonomy (based on config) and IAB Audience Taxonomy (segtax 4)
-  if (isIabEndpoint) {
-    urlParams.push("iabVersions=" + contentSegtax);
-    urlParams.push("iabVersions=4"); // IAB Audience 1.1
+  urlParams.push("iabVersions=" + contentSegtax);
+  urlParams.push("iabVersions=4"); // IAB Audience 1.1
 
-    // Request IAB 1.0 for OpenRTB 2.5 fields if feature enabled.
-    // Skip when contentSegtax is already 1 -- already requested above.
-    if (enableOrtb25Fields && contentSegtax !== 1) {
-      urlParams.push("iabVersions=1"); // IAB Content 1.0
-    }
+  // Request IAB 1.0 for OpenRTB 2.5 fields if feature enabled.
+  // Skip when contentSegtax is already 1 -- already requested above.
+  if (enableOrtb25Fields && contentSegtax !== 1) {
+    urlParams.push("iabVersions=1"); // IAB Content 1.0
+  }
 
-    // Add flattened filter parameters to URL for GET request
-    const filterParams = buildFilterQueryParams(
-      iabTaxonomyFilters,
-      contentSegtax,
-      enableOrtb25Fields
-    );
-    if (filterParams.length > 0) {
-      urlParams.push(...filterParams);
-    }
+  // Add flattened filter parameters to URL for GET request
+  const filterParams = buildFilterQueryParams(
+    iabTaxonomyFilters,
+    contentSegtax,
+    enableOrtb25Fields
+  );
+  if (filterParams.length > 0) {
+    urlParams.push(...filterParams);
   }
 
   const neuwoApiUrlFull = neuwoApiUrl + joiner + urlParams.join("&");
-
-  // For /v1/iab endpoints the full URL already encodes all config (iabVersions, filters).
-  // For legacy endpoints the URL only carries token + page URL, so append config-dependent
-  // values to the cache key to prevent different configs sharing a response that was
-  // transformed/filtered for a different taxonomy version or filter set.
-  let cacheKey = neuwoApiUrlFull;
-  if (!isIabEndpoint) {
-    cacheKey += "&_segtax=" + contentSegtax;
-    if (iabTaxonomyFilters && Object.keys(iabTaxonomyFilters).length > 0) {
-      cacheKey += "&_filters=" + JSON.stringify(iabTaxonomyFilters);
-    }
-  }
+  const cacheKey = neuwoApiUrlFull;
 
   // Cache flow: cached response -> pending request -> new request
   // Each caller gets their own callback invoked when data is ready.
@@ -293,20 +283,6 @@ export function getBidRequestData(
             }
 
             try {
-              if (!isIabEndpoint) {
-                // Apply per-tier filtering to V1 format
-                const filteredMarketingCategories = filterIabTaxonomies(
-                  responseParsed.marketing_categories,
-                  iabTaxonomyFilters
-                );
-
-                // Transform filtered V1 response to unified internal format
-                responseParsed = transformV1ResponseToV2(
-                  { marketing_categories: filteredMarketingCategories },
-                  contentSegtax
-                );
-              }
-
               // Cache response, evicting oldest entry if at capacity.
               // Only cache valid responses so failed requests can be retried.
               if (
@@ -368,9 +344,80 @@ export function getBidRequestData(
   }
 }
 
+/**
+ * Returns the enrichment share group as ad server targeting for every ad unit.
+ *
+ * @param {string[]} adUnitCodes The ad unit codes of the auction.
+ * @returns {Object} `{ [code]: { neuwo_rtd_group: group } }`; the group is `enriched` while enrichment share is off.
+ */
+export function getTargetingData(adUnitCodes) {
+  const targeting = {};
+  adUnitCodes.forEach((code) => {
+    targeting[code] = { [ENRICHMENT_GROUP_KEY]: enrichmentGroup };
+  });
+  return targeting;
+}
+
 //
 // HELPER FUNCTIONS
 //
+
+/**
+ * Checks that the Neuwo API URL is an absolute URL whose path ends in /edge/v1/iab.
+ *
+ * @param {string} url The configured Neuwo API URL.
+ * @returns {boolean} `true` if the URL looks like a valid /edge/v1/iab endpoint URL, otherwise `false`.
+ */
+function isValidApiUrl(url) {
+  try {
+    return /\/edge\/v1\/iab\/?$/.test(new URL(url).pathname);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Returns the share of page loads to enrich, falling back to the default when the configured value is invalid.
+ *
+ * @param {Object} settings The enrichment share settings.
+ * @param {number} [settings.enrichmentRatio] Share of page loads in the enriched group, from 0 to 1.
+ * @returns {number} The enrichment ratio to use.
+ */
+function resolveEnrichmentRatio(settings) {
+  const ratio = settings.enrichmentRatio;
+  if (ratio === undefined) {
+    return DEFAULT_ENRICHMENT_RATIO;
+  }
+  if (typeof ratio !== "number" || !(ratio >= 0 && ratio <= 1)) {
+    logWarn(
+      MODULE_NAME,
+      "resolveEnrichmentRatio():",
+      "enrichmentRatio must be a number from 0 to 1, using " + DEFAULT_ENRICHMENT_RATIO + ", got:",
+      ratio
+    );
+    return DEFAULT_ENRICHMENT_RATIO;
+  }
+  return ratio;
+}
+
+/**
+ * Draws the enrichment share group for this page load.
+ *
+ * @param {Object} [settings] The enrichment share settings.
+ * @param {boolean} [settings.enabled] Enrichment share runs only when this is `true`.
+ * @returns {string} `"enriched"` or `"baseline"`; always `"enriched"` when enrichment share is off.
+ */
+function drawEnrichmentGroup(settings) {
+  if (settings?.enabled !== true) {
+    return ENRICHMENT_GROUPS.ENRICHED;
+  }
+  const group =
+    Math.random() < resolveEnrichmentRatio(settings)
+      ? ENRICHMENT_GROUPS.ENRICHED
+      : ENRICHMENT_GROUPS.BASELINE;
+  logInfo(MODULE_NAME, "drawEnrichmentGroup():", "Group drawn at random:", group);
+  return group;
+}
 
 /**
  * Cleans a URL by stripping query parameters and/or fragments based on the provided configuration.
@@ -528,203 +575,6 @@ export function buildIabData(tierData, segtax) {
 }
 
 /**
- * v1 API specific
- * Filters and limits a single tier's taxonomies based on relevance score and count.
- * Used for client-side filtering with legacy endpoints.
- *
- * @param {Array} iabTaxonomies Array of IAB Taxonomy Segments objects with ID, label, and relevance.
- * @param {Object} filter Filter configuration with optional threshold and limit properties.
- * @returns {Array} Filtered and limited array of taxonomies, sorted by relevance (highest first).
- */
-export function filterIabTaxonomyTier(iabTaxonomies, filter = {}) {
-  if (!Array.isArray(iabTaxonomies)) {
-    return [];
-  }
-  if (iabTaxonomies.length === 0) {
-    return iabTaxonomies;
-  }
-
-  const { threshold, limit } = filter;
-  const hasThreshold = typeof threshold === "number" && threshold > 0;
-  const hasLimit = typeof limit === "number" && limit >= 0;
-
-  // No effective filter configured -- return original order unchanged
-  if (!hasThreshold && !hasLimit) {
-    return iabTaxonomies;
-  }
-
-  let filtered = [...iabTaxonomies]; // Create copy to avoid mutating original
-
-  // Filter by minimum relevance score
-  if (hasThreshold) {
-    filtered = filtered.filter((item) => {
-      const relevance = parseFloat(item?.relevance);
-      return !isNaN(relevance) && relevance >= threshold;
-    });
-  }
-
-  // Sort by relevance (highest first) so limit keeps the most relevant items
-  if (hasLimit) {
-    filtered = filtered.sort((a, b) => {
-      const relA = parseFloat(a?.relevance) || 0;
-      const relB = parseFloat(b?.relevance) || 0;
-      return relB - relA; // Descending order
-    });
-    filtered = filtered.slice(0, limit);
-  }
-
-  return filtered;
-}
-
-/**
- * Maps tier configuration keys to API response keys.
- */
-const TIER_KEY_MAP = {
-  ContentTier1: "iab_tier_1",
-  ContentTier2: "iab_tier_2",
-  ContentTier3: "iab_tier_3",
-  AudienceTier3: "iab_audience_tier_3",
-  AudienceTier4: "iab_audience_tier_4",
-  AudienceTier5: "iab_audience_tier_5",
-};
-
-/**
- * v1 API specific
- * Applies per-tier filtering to IAB taxonomies (client-side filtering for legacy endpoints).
- * Filters taxonomies by relevance score and limits the count per tier.
- *
- * @param {Object} marketingCategories Marketing categories from legacy API response.
- * @param {Object} [tierFilters] Per-tier filter configuration with human-readable tier names (e.g., {ContentTier1: {limit: 3, threshold: 0.75}}).
- * @returns {Object} Filtered marketing categories with the same structure as input.
- */
-export function filterIabTaxonomies(marketingCategories, tierFilters = {}) {
-  if (!marketingCategories || typeof marketingCategories !== "object") {
-    return marketingCategories;
-  }
-
-  // If no filters provided, return original data
-  if (!tierFilters || Object.keys(tierFilters).length === 0) {
-    logInfo(
-      MODULE_NAME,
-      "filterIabTaxonomies():",
-      "No filters provided, returning original data"
-    );
-    return marketingCategories;
-  }
-
-  const filtered = {};
-
-  // Iterate through all tiers in the API response
-  Object.keys(marketingCategories).forEach((apiTierKey) => {
-    const tierData = marketingCategories[apiTierKey];
-
-    // Find the corresponding config key for this API tier
-    const configTierKey = Object.keys(TIER_KEY_MAP).find(
-      (key) => TIER_KEY_MAP[key] === apiTierKey
-    );
-
-    // Get filter for this tier (if configured)
-    const filter = configTierKey ? tierFilters[configTierKey] : {};
-
-    // Apply filter if this tier has data
-    if (Array.isArray(tierData)) {
-      filtered[apiTierKey] = filterIabTaxonomyTier(tierData, filter);
-    } else {
-      // Preserve non-array data as-is
-      filtered[apiTierKey] = tierData;
-    }
-  });
-
-  logInfo(
-    MODULE_NAME,
-    "filterIabTaxonomies():",
-    "Filtering results:",
-    "Original:",
-    marketingCategories,
-    "Filtered:",
-    filtered
-  );
-
-  return filtered;
-}
-
-/**
- * v1 API specific
- * Transforms legacy API response format to unified internal format.
- * Converts marketing_categories structure to segtax-based structure for consistent processing.
- *
- * Legacy format: { marketing_categories: { iab_tier_1: [...], iab_audience_tier_3: [...] } }
- * Unified format: { "6": { "1": [...], "2": [...] }, "4": { "3": [...], "4": [...] } }
- *
- * @param {Object} v1Response The legacy API response with marketing_categories structure.
- * @param {number} contentSegtax The segtax ID for content taxonomies (determined by iabContentTaxonomyVersion).
- * @returns {Object} Unified format response keyed by segtax and tier numbers.
- */
-export function transformV1ResponseToV2(v1Response, contentSegtax) {
-  const marketingCategories = v1Response?.marketing_categories || {};
-  const contentSegtaxStr = String(contentSegtax);
-  const result = {};
-
-  // Content tiers: keyed by segtax from config
-  result[contentSegtaxStr] = {};
-  if (marketingCategories.iab_tier_1) {
-    result[contentSegtaxStr]["1"] = transformSegmentsV1ToV2(
-      marketingCategories.iab_tier_1
-    );
-  }
-  if (marketingCategories.iab_tier_2) {
-    result[contentSegtaxStr]["2"] = transformSegmentsV1ToV2(
-      marketingCategories.iab_tier_2
-    );
-  }
-  if (marketingCategories.iab_tier_3) {
-    result[contentSegtaxStr]["3"] = transformSegmentsV1ToV2(
-      marketingCategories.iab_tier_3
-    );
-  }
-
-  // Audience tiers: segtax 4
-  result["4"] = {};
-  if (marketingCategories.iab_audience_tier_3) {
-    result["4"]["3"] = transformSegmentsV1ToV2(
-      marketingCategories.iab_audience_tier_3
-    );
-  }
-  if (marketingCategories.iab_audience_tier_4) {
-    result["4"]["4"] = transformSegmentsV1ToV2(
-      marketingCategories.iab_audience_tier_4
-    );
-  }
-  if (marketingCategories.iab_audience_tier_5) {
-    result["4"]["5"] = transformSegmentsV1ToV2(
-      marketingCategories.iab_audience_tier_5
-    );
-  }
-
-  return result;
-}
-
-/**
- * v1 API specific
- * Transforms segment objects from legacy format to unified format.
- * Maps field names from legacy API response to unified internal representation.
- *
- * Legacy format: { ID: "123", label: "Category Name", relevance: "0.95" }
- * Unified format: { id: "123", name: "Category Name", relevance: "0.95" }
- *
- * @param {Array} segments Array of legacy segment objects with ID, label, relevance.
- * @returns {Array} Array of unified format segment objects with id, name, relevance.
- */
-export function transformSegmentsV1ToV2(segments) {
-  if (!Array.isArray(segments)) return [];
-  return segments.map((seg) => ({
-    id: seg.ID,
-    name: seg.label,
-    relevance: seg.relevance,
-  }));
-}
-
-/**
  * Builds flattened query parameters from IAB taxonomy filters.
  * Converts human-readable tier names directly to query parameter format for GET requests.
  *
@@ -853,16 +703,6 @@ export function injectIabCategories(
     audienceData
   );
 
-  // ------------- CUSTOM ----------------
-  if (typeof window !== 'undefined') {
-    window._neuwoData = {
-      content: contentData,
-      audience: audienceData
-    };
-  }
-
-  // -----------------------------
-
   // Inject content and audience data independently to avoid sending empty structures
   if (contentData.segment.length > 0) {
     injectOrtbData(reqBidsConfigObj, "site.content.data", [contentData]);
@@ -926,6 +766,7 @@ export const neuwoRtdModule = {
   name: MODULE_NAME,
   init,
   getBidRequestData,
+  getTargetingData,
 };
 
 submodule("realTimeData", neuwoRtdModule);

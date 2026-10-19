@@ -1,9 +1,9 @@
-import {deepAccess, deepClone, isArray, logError, mergeDeep, isEmpty, isPlainObject, isNumber, isStr, deepSetValue} from '../src/utils.js';
-import {getOrigin} from '../libraries/getOrigin/index.js';
-import {BANNER, NATIVE} from '../src/mediaTypes.js';
-import {registerBidder} from '../src/adapters/bidderFactory.js';
+import { deepAccess, deepClone, isArray, logError, mergeDeep, isEmpty, isPlainObject, isNumber, isStr, deepSetValue } from '../src/utils.js';
+import { getOrigin } from '../libraries/getOrigin/index.js';
+import { BANNER, NATIVE } from '../src/mediaTypes.js';
+import { registerBidder } from '../src/adapters/bidderFactory.js';
 
-import {convertOrtbRequestToProprietaryNative} from '../src/native.js';
+import { convertOrtbRequestToProprietaryNative } from '../src/native.js';
 import { interpretNativeBid, OPENRTB } from '../libraries/precisoUtils/bidNativeUtils.js';
 
 const BIDDER_CODE = 'rtbhouse';
@@ -46,8 +46,8 @@ export const spec = {
       const consentStr = (bidderRequest.gdprConsent.consentString)
         ? bidderRequest.gdprConsent.consentString.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : '';
       const gdpr = bidderRequest.gdprConsent.gdprApplies ? 1 : 0;
-      request.regs = {ext: {gdpr: gdpr}};
-      request.user = {ext: {consent: consentStr}};
+      request.regs = { ext: { gdpr: gdpr } };
+      request.user = { ext: { consent: consentStr } };
     }
     const bidSchain = validBidRequests[0]?.ortb2?.source?.ext?.schain;
     if (bidSchain) {
@@ -64,7 +64,7 @@ export const spec = {
       if (request.user && request.user.ext) {
         request.user.ext = { ...request.user.ext, ...eids };
       } else {
-        request.user = {ext: eids};
+        request.user = { ext: eids };
       }
     }
 
@@ -299,7 +299,7 @@ function mapNative(slot) {
         assets: mapNativeAssets(slot)
       },
       ver: '1.1'
-    }
+    };
   }
 }
 
@@ -317,21 +317,21 @@ function mapNativeAssets(slot) {
       title: {
         len: params.title.len || 25
       }
-    })
+    });
   }
   if (params.image) {
     assets.push({
       id: OPENRTB.NATIVE.ASSET_ID.IMAGE,
       required: params.image.required ? 1 : 0,
       img: mapNativeImage(params.image, OPENRTB.NATIVE.IMAGE_TYPE.MAIN)
-    })
+    });
   }
   if (params.icon) {
     assets.push({
       id: OPENRTB.NATIVE.ASSET_ID.ICON,
       required: params.icon.required ? 1 : 0,
       img: mapNativeImage(params.icon, OPENRTB.NATIVE.IMAGE_TYPE.ICON)
-    })
+    });
   }
   if (params.sponsoredBy) {
     assets.push({
@@ -341,7 +341,7 @@ function mapNativeAssets(slot) {
         type: OPENRTB.NATIVE.DATA_ASSET_TYPE.SPONSORED,
         len: params.sponsoredBy.len
       }
-    })
+    });
   }
   if (params.body) {
     assets.push({
@@ -351,7 +351,7 @@ function mapNativeAssets(slot) {
         type: OPENRTB.NATIVE.DATA_ASSET_TYPE.DESC,
         len: params.body.len
       }
-    })
+    });
   }
   if (params.cta) {
     assets.push({
@@ -361,7 +361,7 @@ function mapNativeAssets(slot) {
         type: OPENRTB.NATIVE.DATA_ASSET_TYPE.CTA_TEXT,
         len: params.cta.len
       }
-    })
+    });
   }
   return assets;
 }
@@ -372,7 +372,7 @@ function mapNativeAssets(slot) {
  * @returns {object} Request Image by OpenRTB Native Ads 1.1 §4.4
  */
 function mapNativeImage(image, type) {
-  const img = {type: type};
+  const img = { type: type };
   if (image.aspect_ratios) {
     const ratio = image.aspect_ratios[0];
     const minWidth = ratio.min_width || 100;
@@ -384,7 +384,7 @@ function mapNativeImage(image, type) {
     img.w = size[0];
     img.h = size[1];
   }
-  return img
+  return img;
 }
 
 /**
@@ -406,7 +406,7 @@ function interpretBannerBid(serverBid) {
     },
     netRevenue: true,
     currency: 'USD'
-  }
+  };
 }
 
 /**
@@ -423,12 +423,12 @@ function validateDSA(dsa) {
     return prev && (
       !dsa.hasOwnProperty(attr.name) ||
       (isNumber(dsaEntry) && dsaEntry >= attr.min && dsaEntry <= attr.max)
-    )
+    );
   }, true) &&
     (!dsa.hasOwnProperty('transparency') ||
       (isArray(dsa.transparency) && dsa.transparency.every(
         v => isPlainObject(v) && isStr(v.domain) && v.domain && isArray(v.dsaparams) &&
           v.dsaparams.every(x => isNumber(x))
       ))
-    )
+    );
 }

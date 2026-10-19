@@ -1,8 +1,7 @@
-import {deepAccess, deepSetValue, isArray, isBoolean, isNumber, isStr, logWarn} from '../src/utils.js';
-import {registerBidder} from '../src/adapters/bidderFactory.js';
-import {BANNER, VIDEO} from '../src/mediaTypes.js';
-import {config} from '../src/config.js';
-import {parseDomain} from '../src/refererDetection.js';
+import { deepAccess, deepSetValue, isArray, isBoolean, isNumber, isStr, logWarn } from '../src/utils.js';
+import { registerBidder } from '../src/adapters/bidderFactory.js';
+import { BANNER, VIDEO } from '../src/mediaTypes.js';
+import { parseDomain } from '../src/refererDetection.js';
 
 /**
  * @typedef {import('../src/adapters/bidderFactory.js').BidRequest} BidRequest
@@ -44,7 +43,7 @@ const VIDEO_CUSTOM_PARAMS = {
   'minbitrate': DATA_TYPES.NUMBER,
   'maxbitrate': DATA_TYPES.NUMBER,
   'skip': DATA_TYPES.NUMBER
-}
+};
 
 export const spec = {
   code: BIDDER_CODE,
@@ -108,7 +107,7 @@ export const spec = {
         const floorInfo = request.getFloor({
           currency: 'USD',
           mediaType: impData.video ? 'video' : 'banner',
-          size: [ impData.video ? impData.video.w : impData.banner.w, impData.video ? impData.video.h : impData.banner.h ]
+          size: [impData.video ? impData.video.w : impData.banner.w, impData.video ? impData.video.h : impData.banner.h]
         });
         if (floorInfo && floorInfo.floor) {
           impData.bidfloor = floorInfo.floor;
@@ -128,8 +127,8 @@ export const spec = {
       id: bidderRequest.bidderRequestId,
       cur: [DEFAULT_CUR],
       imp: imps,
-      site: {...bidderRequest?.ortb2?.site, ...params?.site},
-      device: {...bidderRequest?.ortb2?.device, ...params?.device},
+      site: { ...bidderRequest?.ortb2?.site, ...params?.site },
+      device: { ...bidderRequest?.ortb2?.device, ...params?.device },
       user: params.user ? params.user : {},
       app: params.app ? params.app : {},
       ext: {
@@ -140,7 +139,7 @@ export const spec = {
     const rInfo = bidderRequest.refererInfo;
     if (rInfo) {
       payload.site.page = cropPage(rInfo.page || rInfo.topmostLocation);
-      payload.site.domain = parseDomain(payload.site.page, {noLeadingWww: true});
+      payload.site.domain = parseDomain(payload.site.page, { noLeadingWww: true });
     }
 
     payload.device.ua = navigator.userAgent;
@@ -195,7 +194,7 @@ export const spec = {
         ext: {
           schain: schain
         }
-      }
+      };
     }
 
     if (bidderRequest?.timeout) {
@@ -258,8 +257,8 @@ export const spec = {
             bid.dspId = seat;
           }
           bidResponses.push(bid);
-        })
-      })
+        });
+      });
     }
     return bidResponses;
   },
@@ -267,7 +266,7 @@ export const spec = {
   /**
    * Register User Sync.
    */
-  getUserSyncs: (syncOptions, responses, gdprConsent, uspConsent, gppConsent) => {
+  getUserSyncs: (syncOptions, responses, gdprConsent, uspConsent, gppConsent, coppa) => {
     let syncurl = '';
 
     // Attaching GDPR Consent Params in UserSync url
@@ -287,8 +286,8 @@ export const spec = {
       syncurl += '&gpp_sid=' + encodeURIComponent(gppConsent?.applicableSections?.join(','));
     }
 
-    // coppa compliance
-    if (config.getConfig('coppa') === true) {
+    // COPPA is supplied by core's COPPA handler (updated by the Codex bot).
+    if (coppa) {
       syncurl += '&coppa=1';
     }
 
@@ -304,7 +303,7 @@ export const spec = {
       }];
     }
   }
-}
+};
 
 function buildBanner(request) {
   let sizes = request.sizes;
@@ -318,18 +317,18 @@ function buildBanner(request) {
       return {
         w: s[0],
         h: s[1]
-      }
+      };
     });
     return {
       w: sizes[0][0],
       h: sizes[0][1],
       format: format
-    }
+    };
   } else {
     return {
       w: sizes[0][0],
       h: sizes[0][1]
-    }
+    };
   }
 }
 

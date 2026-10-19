@@ -2,16 +2,16 @@ const webpackStream = require('webpack-stream');
 const gulp = require('gulp');
 const helpers = require('./gulpHelpers.js');
 const {argv} = require('yargs');
-const sourcemaps = require('gulp-sourcemaps');
 const babel = require('gulp-babel');
 const {glob} = require('glob');
 const path = require('path');
 const tap = require('gulp-tap');
-const wrap = require('gulp-wrap')
 const _ = require('lodash');
 const fs = require('fs');
 const filter = import('gulp-filter');
 const {buildOptions} = require('./plugins/buildOptions.js');
+const { toModulePath }  = require('./plugins/utils.js');
+
 
 function getDefaults({distUrlBase = null, disableFeatures = null, dev = false}) {
   if (dev && distUrlBase == null) {
@@ -20,7 +20,8 @@ function getDefaults({distUrlBase = null, disableFeatures = null, dev = false}) 
   return {
     disableFeatures: disableFeatures ?? helpers.getDisabledFeatures(),
     distUrlBase: distUrlBase ?? argv.distUrlBase,
-    ES5: argv.ES5
+    dev,
+    polyfills: argv.polyfills
   }
 }
 
@@ -28,13 +29,21 @@ const babelPrecomp = _.memoize(
   function ({distUrlBase = null, disableFeatures = null, dev = false} = {}) {
     const babelConfig = require('./babelConfig.js')(getDefaults({distUrlBase, disableFeatures, dev}));
     return function () {
-      return gulp.src(helpers.getSourcePatterns(), {base: '.', since: gulp.lastRun(babelPrecomp({distUrlBase, disableFeatures, dev}))})
-        .pipe(sourcemaps.init())
+      const sourceRoot = path.resolve('.');
+      const relativeSourceRoot = path.relative(helpers.getPrecompiledPath(), sourceRoot);
+      return gulp.src(helpers.getSourcePatterns(), {
+        base: '.',
+        since: gulp.lastRun(babelPrecomp({distUrlBase, disableFeatures, dev})),
+        sourcemaps: true
+      })
         .pipe(babel(babelConfig))
-        .pipe(sourcemaps.write('.', {
-          sourceRoot: path.relative(helpers.getPrecompiledPath(), path.resolve('.'))
+        .pipe(tap(file => {
+          file.sourceMap.file = file.basename;
+          file.sourceMap.sourceRoot = path.join(relativeSourceRoot, path.relative(file.dirname, sourceRoot))
         }))
-        .pipe(gulp.dest(helpers.getPrecompiledPath()));
+        .pipe(gulp.dest(helpers.getPrecompiledPath(), {
+          sourcemaps: '.'
+        }));
     }
   },
   ({dev, distUrlBase, disableFeatures} = {}) => `${dev}::${distUrlBase ?? ''}::${(disableFeatures ?? []).join(':')}`
@@ -49,6 +58,7 @@ function generateMetadataModules() {
   function cleanMetadata(file) {
     const data = JSON.parse(file.contents.toString())
     delete data.NOTICE;
+    delete data.purposes; // directly included in adapter source
     data.components.forEach(component => {
       delete component.gvlid;
       if (component.aliasOf == null) {
@@ -121,7 +131,7 @@ const generatePublicModules = _.memoize(
           .pipe(filter(publicVersionDoesNotExist))
           .pipe(tap((file) => {
             const {modulePath, publicPath} = getNames(file);
-            file.contents = Buffer.from(template({modulePath}));
+            file.contents = Buffer.from(template({modulePath: toModulePath(modulePath)}));
             file.path = publicPath;
           }))
           .pipe(gulp.dest(publicDir))
@@ -141,7 +151,7 @@ function generateTypeSummary(folder, dest, ignore = dest) {
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, {recursive: true});
       }
-      fs.writeFile(dest, template({files}), done);
+      fs.writeFile(dest, template({files: files.map(toModulePath)}), done);
     })
   }
 }
@@ -157,6 +167,38 @@ const publicModules = gulp.parallel(Object.entries({
   'd.ts': _.template(`export type * from '<%= modulePath %>'`)
 }).map(args => generatePublicModules.apply(null, args)));
 
+
+/**
+ * Apply the `prebid/augmentation-reachable` policy to the generated declarations.
+ *
+ * The same check runs on the sources as a lint rule, but only the generated declarations show
+ * which imports survived declaration emit - and it is those that decide whether an augmentation
+ * reaches a consumer.
+ */
+function checkDeclarations(done) {
+  const {checkFiles, listFiles} = require('./plugins/augmentationReachable.js');
+  const root = helpers.getPrecompiledPath();
+  // compiled test code is not part of the types consumers see, and includes fixtures that
+  // deliberately violate this policy
+  const ignore = [helpers.getPrecompiledPath('test')];
+  const declarations = listFiles(root, ['.d.ts'], ignore);
+  if (declarations.length === 0) {
+    done(new Error(`no declaration files under '${root}', run 'gulp build' first`));
+    return;
+  }
+  const problems = checkFiles(declarations, {
+    coreEntry: helpers.getPrecompiledPath('src/prebid.public.d.ts'),
+    ignore,
+    project: 'tsconfig-strict.json'
+  });
+  if (problems.length > 0) {
+    done(new Error(['', ...problems.map(
+      ({file, line, column, message}) => `${path.relative(__dirname, file)}(${line},${column}): ${message}`
+    )].join('\n')));
+    return;
+  }
+  done();
+}
 
 const globalTemplate = _.template(`<% if (defineGlobal) {%>
 import type {PrebidJS} from "../../prebidGlobal.ts";
@@ -192,7 +234,7 @@ const buildCreative = _.memoize(
   function buildCreative({dev = false} = {}) {
     const opts = {
       mode: dev ? 'development' : 'production',
-      devtool: false
+      devtool: dev ? 'inline-source-map': false
     };
     return function() {
       return gulp.src(['creative/**/*'], {since: gulp.lastRun(buildCreative({dev}))})
@@ -204,8 +246,11 @@ const buildCreative = _.memoize(
 )
 
 function generateCreativeRenderers() {
+  const tpl = _.template('// this file is autogenerated, see creative/README.md\nexport const RENDERER = <%= JSON.stringify(contents.toString()) %>');
   return gulp.src(['build/creative/renderers/**/*.js'], {since: gulp.lastRun(generateCreativeRenderers)})
-    .pipe(wrap('// this file is autogenerated, see creative/README.md\nexport const RENDERER = <%= JSON.stringify(contents.toString()) %>'))
+    .pipe(tap((file) => {
+      file.contents = Buffer.from(tpl({contents: file.contents}));
+    }))
     .pipe(gulp.dest(helpers.getCreativeRendererPath()))
 }
 
@@ -220,13 +265,17 @@ function precompile(options = {}) {
       generateCoreSummary,
       generateModuleSummary,
       generateGlobalDef(options),
-    ])
-  ]);
+    ]),
+  ].concat(options.dev ? [] : [
+    gulp.parallel(['ts-strict', 'check-declarations'])
+  ]));
 }
 
 
 gulp.task('ts', helpers.execaTask('tsc'));
-gulp.task('ts-dev', helpers.execaTask('tsc --incremental'))
+gulp.task('ts-dev', helpers.execaTask('tsc --incremental'));
+gulp.task('ts-strict', helpers.execaTask('tsc -p tsconfig-strict.json'));
+gulp.task('check-declarations', checkDeclarations);
 gulp.task('transpile', babelPrecomp());
 gulp.task('precompile-dev', precompile({dev: true}));
 gulp.task('precompile', precompile());

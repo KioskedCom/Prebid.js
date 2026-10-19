@@ -21,6 +21,7 @@ This file contains instructions for the Codex agent and its friends when working
 
 ## General guidance
 - Node.js `>=20` is required; dependencies are managed with `npm`.
+- Whenever possible, new modules should provide Typescript types for their public interface.
 - Added or modified code must have at least 80% unit test coverage.
 - Link any required documentation PRs in the PR description.
 - Avoid modifying files in `node_modules` or generated build artifacts under `build`.
@@ -31,6 +32,7 @@ This file contains instructions for the Codex agent and its friends when working
 - Always include the string 'codex' or 'agent' in any branch you create. If you instructed to not do that, always include the string 'perbid'.
 - Do not submit pr's with changes to creative.html or creative.js
 - Read CONTRIBUTING.md and PR_REVIEW.md for additional context
+- Use the guidelines at PR_REVIEW.md when doing PR reviews. Make all your comments and code suggestions on the PR itself instead of in linked tasks when commenting in a PR review.
 
 ## Testing
 - When you modify or add source or test files, run only the affected unit tests.
@@ -44,3 +46,32 @@ This file contains instructions for the Codex agent and its friends when working
 - Avoid running Babel over the entire project for incremental test runs.
 - Use `gulp serve-and-test --file <spec_file.js>` or `gulp test --file` so Babel processes only the specified files.
 - Do not invoke commands that rebuild all modules when only a subset are changed.
+
+## Additional context
+- for additional context on repo history, consult https://github.com/prebid/github-activity-db/blob/main/CLAUDE.md on how to download and access repo history in a database you can search locally.
+
+## Common adapter types
+- When bid adapter changes need shared type references, look in the core source modules first:
+- `src/adapters/bidderFactory.js` for bidder registration/build and bidder-spec wiring concepts.
+- `src/userSync.js` for user sync interfaces, sync option handling, and sync registration behavior.
+- `src/adapterManager.js` for adapter manager orchestration and type usage patterns around bidder lifecycle.
+- Prefer importing or mirroring conventions from these modules instead of redefining local ad-hoc shapes.
+- Use imported types for id, analytics, and rtd modules as well whenever possible.
+- Always define types for public interface to an adapter, eg each bidder parameter.
+
+## Review guidelines
+- Use the guidelines at PR_REVIEW.md when doing PR reviews. Make all your comments and code suggestions on the PR itself instead of in linked tasks when commenting in a PR review.
+- Use the module rules at https://docs.prebid.org/dev-docs/module-rules.html
+- Discourage application/json calls, they cause preflight options calls with induced delays over text/plain
+- Make sure people are importing from libraries and our methods whenever possible, eg on viewability or accessing navigator
+- Bidder params should always only override that information coming on the request; bidders should never make someone specify something that is generally available in an ortb2 field on the request in bidder params unless they need an override.
+- Bidders asking for storage access and setting an id in local storage redundant with the shared id is discouraged, they should document why they need to do this odious behavior
+- Submodules need to register in submodules.json
+- No one should be accessing navigator from vendor modules, if navigator needs to be accessed it should be in a common method or library
+- Low priority calls should be import ajax method and use fetch keepalive; they shouldnt use trigger pixel when it can be avoided or fail to specify keepalive.
+- Analytics modules must provide a disableAnalytics method.
+- Metadata files that say do not edit in the comments should not be edited; the build process is responsible for updating the metadata files.
+- PRs should not need to modify https://github.com/prebid/Prebid.js/blob/master/metadata/overrides.mjs as module codes and module names should generally match.
+- Make sure any uses of storage have a device disclosure file declared with appropriate identifier description fields set following https://github.com/InteractiveAdvertisingBureau/GDPR-Transparency-and-Consent-Framework/blob/master/TCFv2/Vendor%20Device%20Storage%20%26%20Operational%20Disclosures.md#example-1 in the https://vendor-list.consensu.org/v3/vendor-list.json if they have a gvlid, if they do not have a gvlid, encourage storage disclosure metadata is committed. Also encourage any use of storage is well described in the module md file.
+- Bidders should not disincentivize multiformat ad units. A bidder that supports multiple formats on an ad unit but is only capable of sending one format on a request to their endpoint should defer to publisher choices, and should not change the default preferred ad format suddenly, eg by adding support for video or native and suddenly preferring it. The possible outcome of this is that publishers would need to drop native declarations from units to continue to transact in banner, a bad outcome for the publisher.
+- Make sure any module params are typed in a d.ts file and imported into js or the types are defined in line in the ts file. Also make sure bidder or other module params are exported so anyone importing prebid's types via npm will have access to them.
