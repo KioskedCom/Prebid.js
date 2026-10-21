@@ -3298,6 +3298,172 @@ describe("neuwoRtdModule", function () {
     });
   });
 
+  describe("page snippet", function () {
+    let randomStub;
+
+    beforeEach(function () {
+      randomStub = sinon.stub(Math, "random").returns(0.5);
+    });
+
+    afterEach(function () {
+      delete window.neuwoRtd;
+      randomStub.restore();
+      neuwo.neuwoRtdModule.init(config());
+    });
+
+    function snippetConfig() {
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/page-snippet";
+      return conf;
+    }
+
+    function groupOf() {
+      return neuwo.neuwoRtdModule.getTargetingData(["div-1"])["div-1"].neuwo_rtd_group;
+    }
+
+    it("should adopt the snippet's promise and make no call", async function () {
+      window.neuwoRtd = { group: "enriched", data: Promise.resolve(getNeuwoApiResponse()) };
+      const conf = snippetConfig();
+      const bidsConfig = bidsConfiglike();
+
+      neuwo.neuwoRtdModule.init(conf);
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      await flushPromises();
+
+      expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+      expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name).to.equal(neuwo.DATA_PROVIDER);
+      expect(groupOf()).to.equal("enriched");
+    });
+
+    it("should adopt a plain response object", async function () {
+      window.neuwoRtd = { group: "enriched", data: getNeuwoApiResponse() };
+      const conf = snippetConfig();
+      const bidsConfig = bidsConfiglike();
+
+      neuwo.neuwoRtdModule.init(conf);
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      await flushPromises();
+
+      expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+      expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name).to.equal(neuwo.DATA_PROVIDER);
+    });
+
+    it("should make no call and inject nothing for a baseline snippet", async function () {
+      window.neuwoRtd = { group: "baseline", data: getNeuwoApiResponse() };
+      const conf = snippetConfig();
+      const bidsConfig = bidsConfiglike();
+      const callback = sinon.spy();
+
+      neuwo.neuwoRtdModule.init(conf);
+      neuwo.getBidRequestData(bidsConfig, callback, conf, "consent data");
+      await flushPromises();
+
+      expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+      expect(bidsConfig.ortb2Fragments.global, "should inject nothing").to.deep.equal({});
+      expect(callback.calledOnce, "should continue the auction once").to.be.true;
+      expect(groupOf()).to.equal("baseline");
+    });
+
+    it("should let the snippet's group win over the module's settings", function () {
+      window.neuwoRtd = { group: "baseline", data: null };
+      const shareOn = snippetConfig();
+      shareOn.params.enrichmentShareSettings = { enabled: true, enrichmentRatio: 1 };
+
+      neuwo.neuwoRtdModule.init(shareOn);
+      expect(groupOf(), "should ignore a ratio of 1").to.equal("baseline");
+
+      neuwo.neuwoRtdModule.init(snippetConfig());
+      expect(groupOf(), "should ignore the share being off").to.equal("baseline");
+      expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+    });
+
+    it("should call the API when an enriched snippet has no data", function () {
+      window.neuwoRtd = { group: "enriched", data: null };
+
+      neuwo.neuwoRtdModule.init(snippetConfig());
+
+      expect(server.requests.length, "init should call the Neuwo API").to.equal(1);
+    });
+
+    [
+      { name: "should retry when the snippet's data resolves to null", data: () => Promise.resolve(null) },
+      { name: "should treat rejected snippet data as no data", data: () => Promise.reject(new Error("x")) },
+      { name: "should treat non-object snippet data as no data", data: () => Promise.resolve("oops") },
+    ].forEach(({ name, data }) => {
+      it(name, async function () {
+        window.neuwoRtd = { group: "enriched", data: data() };
+        const conf = snippetConfig();
+
+        neuwo.neuwoRtdModule.init(conf);
+        expect(server.requests.length, "init should use the snippet's data").to.equal(0);
+        await flushPromises();
+        neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+
+        expect(server.requests.length, "the auction should call the Neuwo API").to.equal(1);
+      });
+    });
+
+    it("should draw its own group and ignore the data for an invalid group", function () {
+      window.neuwoRtd = { group: "foo", data: getNeuwoApiResponse() };
+      randomStub.returns(0.1);
+
+      neuwo.neuwoRtdModule.init(snippetConfig());
+
+      expect(groupOf()).to.equal("enriched");
+      expect(server.requests.length, "init should call the Neuwo API").to.equal(1);
+    });
+
+    it("should ignore the data when the group is missing", function () {
+      window.neuwoRtd = { data: getNeuwoApiResponse() };
+
+      neuwo.neuwoRtdModule.init(snippetConfig());
+
+      expect(server.requests.length, "init should call the Neuwo API").to.equal(1);
+    });
+
+    it("should ignore a window.neuwoRtd that is not an object", function () {
+      window.neuwoRtd = null;
+      expect(neuwo.neuwoRtdModule.init(snippetConfig()), "init should succeed with null").to.be.true;
+      expect(server.requests.length, "init should call the Neuwo API").to.equal(1);
+
+      neuwo.clearCache();
+      window.neuwoRtd = "x";
+      expect(neuwo.neuwoRtdModule.init(snippetConfig()), "init should succeed with a string").to.be.true;
+      expect(server.requests.length, "init should call the Neuwo API again").to.equal(2);
+    });
+
+    it("should serve only the first auction from the snippet when enableCache is false", async function () {
+      window.neuwoRtd = { group: "enriched", data: getNeuwoApiResponse() };
+      const conf = snippetConfig();
+      conf.params.enableCache = false;
+      const bidsConfig = bidsConfiglike();
+
+      neuwo.neuwoRtdModule.init(conf);
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      await flushPromises();
+      expect(server.requests.length, "the first auction should use the snippet's data").to.equal(0);
+      expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name).to.equal(neuwo.DATA_PROVIDER);
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+      expect(server.requests.length, "the second auction should call fresh").to.equal(1);
+    });
+
+    it("should leave window.neuwoRtd unchanged", async function () {
+      const snippet = { group: "enriched", data: getNeuwoApiResponse() };
+      window.neuwoRtd = snippet;
+      const conf = snippetConfig();
+
+      neuwo.neuwoRtdModule.init(conf);
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+      await flushPromises();
+
+      expect(window.neuwoRtd).to.equal(snippet);
+      expect(Object.keys(snippet)).to.deep.equal(["group", "data"]);
+      expect(snippet.group).to.equal("enriched");
+      expect(snippet.data).to.deep.equal(getNeuwoApiResponse());
+    });
+  });
+
   describe("enrichment share", function () {
     let randomStub;
     let paramStub;

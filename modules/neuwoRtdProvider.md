@@ -315,6 +315,76 @@ while the split is off, the setup can be checked in GAM before the split starts.
 > `window` variable, make sure it is never reused on baseline page loads. Otherwise the baseline group receives Neuwo
 > data and the measured difference shrinks.
 
+### Page Snippet (Faster Start)
+
+The module starts the Neuwo API call when Prebid.js processes `setConfig`. To start it even earlier, while the page is
+still loading and before Prebid.js has downloaded, add the Neuwo page snippet. The snippet is optional: without it, the
+module works exactly as described above.
+
+> Disclosure: this module reads `window.neuwoRtd` when present and never writes it.
+
+Paste the snippet inline in the page `<head>`, before the Prebid.js script tag:
+
+```html
+<script>
+(function () {
+  var ratio = 0.9;
+  var group = Math.random() < ratio ? "enriched" : "baseline";
+  var api = "<Your Neuwo Edge API Endpoint URL>?token=<Your Neuwo API Token>&iabVersions=6&iabVersions=4&iabVersions=1&_neuwo_prod=PrebidModule&url=";
+  var page = location.href;
+  window.neuwoRtd = {
+    group: group,
+    data: group === "enriched"
+      ? fetch(api + encodeURIComponent(page))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .catch(function () { return null; })
+      : null
+  };
+})();
+</script>
+```
+
+The snippet sets one object, which the module reads once, when it initialises:
+
+| Field   | Type                                                                        | Meaning                                         |
+| :------ | :-------------------------------------------------------------------------- | :---------------------------------------------- |
+| `group` | `"enriched"` or `"baseline"`                                                | The enrichment share group for this page load   |
+| `data`  | A promise of the Neuwo API response or `null`; the response itself; or `null` | The Neuwo API response for the current page     |
+
+**Keep the snippet in line with the module configuration:**
+
+- Place it inline and before Prebid.js. A snippet that runs after Prebid.js has initialised can cause a second call.
+- Set `ratio` to the module's `enrichmentShareSettings.enrichmentRatio`. With enrichment share off, use `1`.
+- Use the same query string as the module: the taxonomy versions, any `filter_*` parameters, and the URL cleaning,
+  reflected in `page` (for example `location.origin + location.pathname` when the module strips query parameters and
+  fragments). The simplest way to get it is to run the page with Prebid.js debug on (`?pbjs_debug=true`) and copy the
+  URL the module logs after `Calling Neuwo API Endpoint:`, without its `url=` value.
+- A mismatch is not an error. The module injects whatever taxonomies the response contains and skips empty ones.
+- The snippet's call also runs before the consent management platform answers.
+
+**How the module uses it:**
+
+| `window.neuwoRtd` when the module initialises | Group used                          | Neuwo API call                                         |
+| :-------------------------------------------- | :---------------------------------- | :----------------------------------------------------- |
+| Absent                                        | Drawn by the module                 | The module's own call, in the enriched group           |
+| Valid `group` and `data`                      | The snippet's group                 | The snippet's call; the module makes none              |
+| Valid `group`, `data` missing or `null`       | The snippet's group                 | The module's own call, in the enriched group           |
+| `group` missing or invalid                    | Drawn by the module                 | The module's own call, in the enriched group; `data` is ignored |
+| `group: "baseline"`                           | `baseline`                          | None, even if `data` is present                        |
+
+The snippet's group wins over the module's `enrichmentShareSettings`, because the snippet already decided whether the
+call happened. The module still sends `neuwo_rtd_group` to GAM with whichever group is used. If the snippet's call
+fails or returns no data, the next auction calls the Neuwo API itself.
+
+**Server-side enrichment:** the same object lets a publisher's server write the categories into the page, with no
+client call at all:
+
+```html
+<script>
+window.neuwoRtd = { group: "enriched", data: { /* Neuwo API response for this page */ } };
+</script>
+```
+
 ## Accessing Neuwo Data Outside Prebid.js
 
 The Neuwo RTD module enriches bid requests with contextual data that can be accessed in application code for analytics, targeting, integration with Google Ad Manager as [Publisher Provided Signals (PPS)](https://support.google.com/admanager/answer/15287325) or other purposes. The enriched data is available through Prebid.js events.
@@ -457,4 +527,4 @@ npx gulp build --modules=rtdModule,neuwoRtdProvider
 
 This command creates optimised, minified code typically used on websites.
 
-> Version **3.1.0**
+> Version **3.2.0**
