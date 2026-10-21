@@ -84,6 +84,12 @@ pbjs.setConfig({
 });
 ```
 
+**When the module calls the Neuwo API**
+
+The module starts the Neuwo API call as soon as Prebid.js processes `setConfig({ realTimeData })`, so the categories are usually ready when the first auction starts. The call therefore leaves the browser before the consent management platform answers. It carries only the page URL and your token. To keep the call until after consent, call `setConfig({ realTimeData })` after consent is resolved or just before the first auction.
+
+If you set `pageUrl`, set it before `realTimeData` or in the same `setConfig` call. A `pageUrl` set later changes the analysed URL after the call has started, so the early response goes unused and the first auction makes a second call.
+
 **Parameters**
 
 | Name                                             | Type     | Required | Default | Description                                                                                                                                                                                                                                                                                                                                                                |
@@ -93,7 +99,7 @@ pbjs.setConfig({
 | `params.neuwoApiUrl`                             | String   | Yes      |         | The Neuwo Edge API endpoint URL: an absolute URL whose path ends in `/edge/v1/iab`. Other URLs log a warning.                                                                                                                                                                                                                                                              |
 | `params.neuwoApiToken`                           | String   | Yes      |         | Your unique API token provided by Neuwo.                                                                                                                                                                                                                                                                                                                                   |
 | `params.iabContentTaxonomyVersion`               | String   | No       | `'2.2'` | Specifies the version of the IAB Content Taxonomy to be used. Supported values: `'1.0'`, `'2.2'`, `'3.0'`.                                                                                                                                                                                                                                                                 |
-| `params.enableCache`                             | Boolean  | No       | `true`  | If `true`, caches API responses to avoid redundant requests for the same page during the session. Set to `false` to disable caching and make a fresh API call on every bid request.                                                                                                                                                                                        |
+| `params.enableCache`                             | Boolean  | No       | `true`  | If `true`, caches API responses to avoid redundant requests for the same page during the session. Set to `false` to make a fresh API call on every bid request after the first, which uses the call started at `setConfig`.                                                                                                                                                |
 | `params.enableOrtb25Fields`                      | Boolean  | No       | `true`  | If `true`, populates OpenRTB 2.5 category fields (`ortb2.site.cat`, `ortb2.site.sectioncat`, `ortb2.site.pagecat`, `ortb2.site.content.cat`) with IAB Content Taxonomy 1.0 segments. See [OpenRTB 2.5 Category Fields](#openrtb-25-category-fields) section below for details.                                                                                             |
 | `params.stripAllQueryParams`                     | Boolean  | No       | `false` | If `true`, strips all query parameters from the URL before analysis. Takes precedence over other stripping options.                                                                                                                                                                                                                                                        |
 | `params.stripQueryParamsForDomains`              | String[] | No       | `[]`    | List of domains for which to strip **all** query parameters. When a domain matches, all query params are removed for that domain and all its subdomains (e.g., `'example.com'` strips params for both `'example.com'` and `'sub.example.com'`). This option takes precedence over `stripQueryParams` for matching domains.                                                 |
@@ -106,7 +112,7 @@ pbjs.setConfig({
 
 ### API Response Caching
 
-By default, the module caches API responses during the page session to optimise performance and reduce redundant API calls. This behaviour can be disabled by setting `enableCache: false` if needed for dynamic content scenarios.
+By default, the module caches API responses during the page session to optimise performance and reduce redundant API calls. Auctions for the same URL share one request, including the one started at `setConfig`, and a failed request is retried by the next auction. Setting `enableCache: false` keeps the early response for the first auction only; every later auction makes a fresh call, which can help with dynamic content.
 
 ### OpenRTB 2.5 Category Fields
 

@@ -3174,6 +3174,130 @@ describe("neuwoRtdModule", function () {
     });
   });
 
+  describe("early call in init", function () {
+    let randomStub;
+
+    beforeEach(function () {
+      randomStub = sinon.stub(Math, "random").returns(0.5);
+    });
+
+    afterEach(function () {
+      randomStub.restore();
+      neuwo.neuwoRtdModule.init(config());
+    });
+
+    function earlyConfig() {
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/early-call";
+      return conf;
+    }
+
+    it("should start the Neuwo API call in init", function () {
+      const conf = earlyConfig();
+
+      expect(neuwo.neuwoRtdModule.init(conf), "init should succeed").to.be.true;
+
+      expect(server.requests.length, "init should call the Neuwo API").to.equal(1);
+      expect(server.requests[0].url).to.equal(neuwo.buildNeuwoApiUrl(conf.params));
+    });
+
+    it("should serve the first auction from the request started in init", async function () {
+      const conf = earlyConfig();
+      const bidsConfig = bidsConfiglike();
+      const callback = sinon.spy();
+      neuwo.neuwoRtdModule.init(conf);
+
+      neuwo.getBidRequestData(bidsConfig, callback, conf, "consent data");
+      expect(server.requests.length, "the auction should not call again").to.equal(1);
+      respondOk(server.requests[0]);
+      await flushPromises();
+
+      expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name).to.equal(neuwo.DATA_PROVIDER);
+      expect(callback.calledOnce, "should continue the auction once").to.be.true;
+    });
+
+    it("should serve concurrent auctions from the request started in init", async function () {
+      const conf = earlyConfig();
+      const bidsConfig1 = bidsConfiglike();
+      const bidsConfig2 = bidsConfiglike();
+      neuwo.neuwoRtdModule.init(conf);
+
+      neuwo.getBidRequestData(bidsConfig1, () => {}, conf, "consent data");
+      neuwo.getBidRequestData(bidsConfig2, () => {}, conf, "consent data");
+      expect(server.requests.length, "both auctions should share the call").to.equal(1);
+      respondOk(server.requests[0]);
+      await flushPromises();
+
+      expect(bidsConfig1.ortb2Fragments.global.site.content.data[0].name).to.equal(neuwo.DATA_PROVIDER);
+      expect(bidsConfig2.ortb2Fragments.global.site.content.data[0].name).to.equal(neuwo.DATA_PROVIDER);
+    });
+
+    it("should make no call in init in the baseline group", function () {
+      randomStub.returns(0.95);
+      const conf = earlyConfig();
+      conf.params.enrichmentShareSettings = { enabled: true };
+
+      expect(neuwo.neuwoRtdModule.init(conf), "init should succeed").to.be.true;
+
+      expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+    });
+
+    it("should make no call in init when there is no URL to analyse", function () {
+      const getRefererInfoStub = sinon.stub(refererDetection, "getRefererInfo").returns({ page: "" });
+
+      try {
+        expect(neuwo.neuwoRtdModule.init(config()), "init should succeed").to.be.true;
+        expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
+      } finally {
+        getRefererInfoStub.restore();
+      }
+    });
+
+    it("should retry in the auction when the call from init fails", async function () {
+      const conf = earlyConfig();
+      neuwo.neuwoRtdModule.init(conf);
+      server.requests[0].respond(500, {}, "error");
+      await flushPromises();
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+
+      expect(server.requests.length, "the auction should retry").to.equal(2);
+    });
+
+    it("should call the API for a new URL after init", function () {
+      const getRefererInfoStub = sinon.stub(refererDetection, "getRefererInfo");
+      getRefererInfoStub.onFirstCall().returns({ page: "https://publisher.works/a" });
+      getRefererInfoStub.returns({ page: "https://publisher.works/b" });
+
+      try {
+        const conf = config();
+        neuwo.neuwoRtdModule.init(conf);
+        neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+
+        expect(server.requests.length, "the new URL should get its own call").to.equal(2);
+        expect(server.requests[1].url).to.include(encodeURIComponent("https://publisher.works/b"));
+      } finally {
+        getRefererInfoStub.restore();
+      }
+    });
+
+    it("should serve only the first auction from init when enableCache is false", async function () {
+      const conf = earlyConfig();
+      conf.params.enableCache = false;
+      const bidsConfig = bidsConfiglike();
+      neuwo.neuwoRtdModule.init(conf);
+      respondOk(server.requests[0]);
+
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      await flushPromises();
+      expect(server.requests.length, "the first auction should use the early call").to.equal(1);
+      expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name).to.equal(neuwo.DATA_PROVIDER);
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+      expect(server.requests.length, "the second auction should call fresh").to.equal(2);
+    });
+  });
+
   describe("enrichment share", function () {
     let randomStub;
     let paramStub;
