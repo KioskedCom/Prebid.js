@@ -20,7 +20,7 @@
 
 import { ajax } from "../src/ajax.js";
 import { submodule } from "../src/hook.js";
-import { getRefererInfo } from "../src/refererDetection.js";
+import { detectReferer, getRefererInfo } from "../src/refererDetection.js";
 import {
   deepSetValue,
   logError,
@@ -103,7 +103,7 @@ function init(config, userConsent) {
   }
   enrichmentGroup = pageGroup || drawEnrichmentGroup(params.enrichmentShareSettings);
   if (enrichmentGroup === ENRICHMENT_GROUPS.ENRICHED) {
-    const apiUrl = buildNeuwoApiUrl(params);
+    const apiUrl = buildNeuwoApiUrl(params, detectReferer(window));
     if (apiUrl) {
       getCategories(apiUrl, pageGroup ? window.neuwoRtd.data : undefined);
     }
@@ -202,9 +202,11 @@ export function getTargetingData(adUnitCodes) {
  * Builds the full Neuwo API URL for the page to analyse.
  *
  * @param {Object} params The module configuration parameters, as documented on `getBidRequestData`.
+ * @param {function} [readReferer=getRefererInfo] Returns the referer info whose `page` is analysed; `init()` passes an
+ *   uncached reader so it does not fix the page URL that the rest of Prebid.js reads before a later `pageUrl`.
  * @returns {string|null} The full API URL, or `null` when there is no URL to analyse.
  */
-export function buildNeuwoApiUrl(params) {
+export function buildNeuwoApiUrl(params, readReferer = getRefererInfo) {
   const {
     websiteToAnalyseUrl,
     neuwoApiUrl,
@@ -218,7 +220,7 @@ export function buildNeuwoApiUrl(params) {
     iabTaxonomyFilters,
   } = params;
 
-  const rawUrl = websiteToAnalyseUrl || getRefererInfo().page;
+  const rawUrl = websiteToAnalyseUrl || readReferer().page;
   if (!rawUrl) {
     logError(MODULE_NAME, "buildNeuwoApiUrl():", "No URL available to analyse");
     return null;

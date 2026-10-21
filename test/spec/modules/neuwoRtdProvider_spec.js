@@ -3243,13 +3243,26 @@ describe("neuwoRtdModule", function () {
     });
 
     it("should make no call in init when there is no URL to analyse", function () {
-      const getRefererInfoStub = sinon.stub(refererDetection, "getRefererInfo").returns({ page: "" });
+      const detectRefererStub = sinon.stub(refererDetection, "detectReferer").returns(() => ({ page: "" }));
 
       try {
         expect(neuwo.neuwoRtdModule.init(config()), "init should succeed").to.be.true;
         expect(server.requests.length, "should not call the Neuwo API").to.equal(0);
       } finally {
-        getRefererInfoStub.restore();
+        detectRefererStub.restore();
+      }
+    });
+
+    it("should leave Prebid's shared referer cache alone in init", function () {
+      const getRefererInfoSpy = sinon.spy(refererDetection, "getRefererInfo");
+
+      try {
+        neuwo.neuwoRtdModule.init(config());
+
+        expect(server.requests.length, "init should still call the Neuwo API").to.equal(1);
+        expect(getRefererInfoSpy.called, "a later pageUrl must still reach the rest of Prebid").to.be.false;
+      } finally {
+        getRefererInfoSpy.restore();
       }
     });
 
@@ -3265,9 +3278,12 @@ describe("neuwoRtdModule", function () {
     });
 
     it("should call the API for a new URL after init", function () {
-      const getRefererInfoStub = sinon.stub(refererDetection, "getRefererInfo");
-      getRefererInfoStub.onFirstCall().returns({ page: "https://publisher.works/a" });
-      getRefererInfoStub.returns({ page: "https://publisher.works/b" });
+      const detectRefererStub = sinon
+        .stub(refererDetection, "detectReferer")
+        .returns(() => ({ page: "https://publisher.works/a" }));
+      const getRefererInfoStub = sinon
+        .stub(refererDetection, "getRefererInfo")
+        .returns({ page: "https://publisher.works/b" });
 
       try {
         const conf = config();
@@ -3275,8 +3291,10 @@ describe("neuwoRtdModule", function () {
         neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
 
         expect(server.requests.length, "the new URL should get its own call").to.equal(2);
+        expect(server.requests[0].url).to.include(encodeURIComponent("https://publisher.works/a"));
         expect(server.requests[1].url).to.include(encodeURIComponent("https://publisher.works/b"));
       } finally {
+        detectRefererStub.restore();
         getRefererInfoStub.restore();
       }
     });
