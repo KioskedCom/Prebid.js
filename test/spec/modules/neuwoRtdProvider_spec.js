@@ -116,6 +116,16 @@ function bidsConfiglike() {
   );
 }
 
+const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function respondOk(request, body = getNeuwoApiResponse()) {
+  request.respond(
+    200,
+    { "Content-Type": "application/json; encoding=UTF-8" },
+    JSON.stringify(body)
+  );
+}
+
 describe("neuwoRtdModule", function () {
   beforeEach(function () {
     // Clear the global cache before each test to ensure test isolation
@@ -1312,7 +1322,100 @@ describe("neuwoRtdModule", function () {
     });
   });
 
+  describe("buildNeuwoApiUrl", function () {
+    it("should return null when there is no URL to analyse", function () {
+      const getRefererInfoStub = sinon.stub(refererDetection, "getRefererInfo").returns({ page: "" });
+
+      try {
+        expect(neuwo.buildNeuwoApiUrl(config().params)).to.be.null;
+      } finally {
+        getRefererInfoStub.restore();
+      }
+    });
+
+    it("should build the full API URL in the existing parameter order", function () {
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/a.php";
+
+      expect(neuwo.buildNeuwoApiUrl(conf.params)).to.equal(
+        NEUWO_API_URL +
+          "?token=token&url=" +
+          encodeURIComponent("https://publisher.works/a.php") +
+          "&_neuwo_prod=PrebidModule&iabVersions=6&iabVersions=4&iabVersions=1"
+      );
+    });
+  });
+
   describe("getBidRequestData", function () {
+    it("should call back exactly once when injection throws", async function () {
+      const logErrorStub = sinon.stub(utils, "logError");
+      const bidsConfig = { ortb2Fragments: null };
+      const callback = sinon.spy();
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/injection-throws";
+
+      neuwo.getBidRequestData(bidsConfig, callback, conf, "consent data");
+      respondOk(server.requests[0]);
+      await flushPromises();
+
+      expect(callback.calledOnce, "should continue the auction once").to.be.true;
+      expect(
+        logErrorStub.getCalls().some((call) => call.args.includes("Error processing Neuwo API response:")),
+        "should log the processing error"
+      ).to.be.true;
+      logErrorStub.restore();
+    });
+
+    it("should call back both waiting auctions on failure and retry on the next one", async function () {
+      const bidsConfig1 = bidsConfiglike();
+      const bidsConfig2 = bidsConfiglike();
+      const callback1 = sinon.spy();
+      const callback2 = sinon.spy();
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/both-fail";
+
+      neuwo.getBidRequestData(bidsConfig1, callback1, conf, "consent data");
+      neuwo.getBidRequestData(bidsConfig2, callback2, conf, "consent data");
+      expect(server.requests.length, "should share one request").to.equal(1);
+      server.requests[0].respond(500, {}, "error");
+      await flushPromises();
+
+      expect(callback1.calledOnce, "first auction should continue once").to.be.true;
+      expect(callback2.calledOnce, "second auction should continue once").to.be.true;
+      expect(bidsConfig1.ortb2Fragments.global, "first auction gets nothing").to.deep.equal({});
+      expect(bidsConfig2.ortb2Fragments.global, "second auction gets nothing").to.deep.equal({});
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+      expect(server.requests.length, "the next auction should retry").to.equal(2);
+    });
+
+    it("should retry after a non-object JSON response", async function () {
+      const bidsConfig = bidsConfiglike();
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/non-object";
+
+      neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+      respondOk(server.requests[0], "oops");
+      await flushPromises();
+
+      expect(bidsConfig.ortb2Fragments.global, "should inject nothing").to.deep.equal({});
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+      expect(server.requests.length, "the next auction should retry").to.equal(2);
+    });
+
+    it("should start again after clearCache()", async function () {
+      const conf = config();
+      conf.params.websiteToAnalyseUrl = "https://publisher.works/clear-cache";
+
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+      respondOk(server.requests[0]);
+      await flushPromises();
+      neuwo.clearCache();
+      neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+
+      expect(server.requests.length, "should call the API again").to.equal(2);
+    });
+
     it("should call callback and not make API request when no URL is available", function () {
       const getRefererInfoStub = sinon.stub(refererDetection, "getRefererInfo").returns({ page: "" });
       const bidsConfig = bidsConfiglike();
@@ -1375,7 +1478,7 @@ describe("neuwoRtdModule", function () {
     });
 
     describe("when using IAB Content Taxonomy 2.2 (API default)", function () {
-      it("should correctly structure the bids object after a successful API response", function () {
+      it("should correctly structure the bids object after a successful API response", async function () {
         const apiResponse = getNeuwoApiResponse();
         const bidsConfig = bidsConfiglike();
         const conf = config();
@@ -1410,6 +1513,7 @@ describe("neuwoRtdModule", function () {
           JSON.stringify(apiResponse)
         );
 
+        await flushPromises();
         const contentData = bidsConfig.ortb2Fragments.global.site.content.data[0];
         expect(contentData.name, "The data provider name should be correctly set").to.equal(
           neuwo.DATA_PROVIDER
@@ -1430,7 +1534,7 @@ describe("neuwoRtdModule", function () {
     });
 
     describe("when using IAB Content Taxonomy 1.0", function () {
-      it("should correctly structure the bids object after a successful API response", function () {
+      it("should correctly structure the bids object after a successful API response", async function () {
         const apiResponse = {
           1: { 1: [{ id: "IAB1" }], 2: [{ id: "IAB1-1" }], 3: [{ id: "IAB1-1-1" }] },
           4: { 3: [{ id: "49" }, { id: "780" }], 4: [{ id: "431" }], 5: [{ id: "98" }] },
@@ -1468,6 +1572,7 @@ describe("neuwoRtdModule", function () {
           JSON.stringify(apiResponse)
         );
 
+        await flushPromises();
         const contentData = bidsConfig.ortb2Fragments.global.site.content.data[0];
         expect(contentData.name, "The data provider name should be correctly set").to.equal(
           neuwo.DATA_PROVIDER
@@ -1488,7 +1593,7 @@ describe("neuwoRtdModule", function () {
     });
 
     describe("when using IAB Content Taxonomy 3.0", function () {
-      it("should correctly structure the bids object after a successful API response", function () {
+      it("should correctly structure the bids object after a successful API response", async function () {
         const apiResponse = {
           7: { 1: [{ id: "80DV8O" }], 2: [{ id: "90" }], 3: [{ id: "106" }] },
           4: { 3: [{ id: "49" }, { id: "780" }], 4: [{ id: "431" }], 5: [{ id: "98" }] },
@@ -1526,6 +1631,7 @@ describe("neuwoRtdModule", function () {
           JSON.stringify(apiResponse)
         );
 
+        await flushPromises();
         const contentData = bidsConfig.ortb2Fragments.global.site.content.data[0];
         expect(contentData.name, "The data provider name should be correctly set").to.equal(
           neuwo.DATA_PROVIDER
@@ -1546,7 +1652,7 @@ describe("neuwoRtdModule", function () {
     });
 
     describe("when using IAB Audience Taxonomy 1.1", function () {
-      it("should correctly structure the bids object after a successful API response", function () {
+      it("should correctly structure the bids object after a successful API response", async function () {
         const apiResponse = getNeuwoApiResponse();
         const bidsConfig = bidsConfiglike();
         const conf = config();
@@ -1571,6 +1677,7 @@ describe("neuwoRtdModule", function () {
           { "Content-Type": "application/json; encoding=UTF-8" },
           JSON.stringify(apiResponse)
         );
+        await flushPromises();
         const userData = bidsConfig.ortb2Fragments.global.user.data[0];
         expect(userData.name, "The data provider name should be correctly set").to.equal(
           neuwo.DATA_PROVIDER
@@ -1638,7 +1745,7 @@ describe("neuwoRtdModule", function () {
           expect(request.url, "should still include iabVersions=4").to.include("iabVersions=4");
         });
 
-        it("should inject category fields when API returns IAB 1.0 data", function () {
+        it("should inject category fields when API returns IAB 1.0 data", async function () {
           const apiResponse = {
             "1": {
               "1": [{ id: "IAB12" }],
@@ -1663,6 +1770,7 @@ describe("neuwoRtdModule", function () {
             JSON.stringify(apiResponse)
           );
 
+          await flushPromises();
           const siteCat = bidsConfig.ortb2Fragments.global?.site?.cat;
           const contentData = bidsConfig.ortb2Fragments.global?.site?.content?.data?.[0];
 
@@ -1670,7 +1778,7 @@ describe("neuwoRtdModule", function () {
           expect(contentData, "should have content data").to.exist;
         });
 
-        it("should send IAB 1.0 filter configuration in URL parameters", function () {
+        it("should send IAB 1.0 filter configuration in URL parameters", async function () {
           const apiResponse = {
             "1": {
               "1": [{ id: "IAB12" }],
@@ -1699,6 +1807,7 @@ describe("neuwoRtdModule", function () {
             JSON.stringify(apiResponse)
           );
 
+          await flushPromises();
           const siteCat = bidsConfig.ortb2Fragments.global?.site?.cat;
           expect(siteCat, "should inject category fields").to.deep.equal(["IAB12", "IAB12-3"]);
         });
@@ -1718,7 +1827,7 @@ describe("neuwoRtdModule", function () {
           expect(request.url, "should still include iabVersions=6").to.include("iabVersions=6");
         });
 
-        it("should not inject category fields even if API returns IAB 1.0 data", function () {
+        it("should not inject category fields even if API returns IAB 1.0 data", async function () {
           const apiResponse = {
             "1": {
               "1": [{ id: "IAB12" }]
@@ -1740,6 +1849,7 @@ describe("neuwoRtdModule", function () {
             JSON.stringify(apiResponse)
           );
 
+          await flushPromises();
           const siteCat = bidsConfig.ortb2Fragments.global?.site?.cat;
           const contentData = bidsConfig.ortb2Fragments.global?.site?.content?.data?.[0];
 
@@ -2225,7 +2335,7 @@ describe("neuwoRtdModule", function () {
       ).to.deep.equal(bidsConfigCopy.ortb2Fragments.global);
     });
 
-    it("should append content and user data to existing ORTB fragments", function () {
+    it("should append content and user data to existing ORTB fragments", async function () {
       const apiResponse = getNeuwoApiResponse();
       const bidsConfig = bidsConfiglike();
       // Simulate existing first-party data from another source/module
@@ -2252,6 +2362,7 @@ describe("neuwoRtdModule", function () {
         JSON.stringify(apiResponse)
       );
 
+      await flushPromises();
       const siteData = bidsConfig.ortb2Fragments.global.site.content.data;
       const userData = bidsConfig.ortb2Fragments.global.user.data;
 
@@ -2272,7 +2383,7 @@ describe("neuwoRtdModule", function () {
       );
     });
 
-    it("should correctly construct API URL when neuwoApiUrl already contains query parameters", function () {
+    it("should correctly construct API URL when neuwoApiUrl already contains query parameters", async function () {
       const apiResponse = getNeuwoApiResponse();
       const bidsConfig = bidsConfiglike();
       const conf = config();
@@ -2298,6 +2409,7 @@ describe("neuwoRtdModule", function () {
         JSON.stringify(apiResponse)
       );
 
+      await flushPromises();
       const contentData = bidsConfig.ortb2Fragments.global.site.content.data[0];
       expect(contentData.name, "Should successfully process response").to.equal(neuwo.DATA_PROVIDER);
     });
@@ -2359,7 +2471,7 @@ describe("neuwoRtdModule", function () {
 
   describe("getBidRequestData with caching", function () {
     describe("when enableCache is true (default)", function () {
-      it("should cache the API response and reuse it on subsequent calls", function () {
+      it("should cache the API response and reuse it on subsequent calls", async function () {
         const apiResponse = getNeuwoApiResponse();
         const bidsConfig1 = bidsConfiglike();
         const bidsConfig2 = bidsConfiglike();
@@ -2382,6 +2494,7 @@ describe("neuwoRtdModule", function () {
         expect(server.requests.length, "Second call should not make a new API request").to.equal(1);
 
         // Both configs should have identical data (second served from cache)
+        await flushPromises();
         const contentData1 = bidsConfig1.ortb2Fragments.global.site.content.data[0];
         const contentData2 = bidsConfig2.ortb2Fragments.global.site.content.data[0];
         expect(contentData1, "First config should have Neuwo data").to.exist;
@@ -2670,16 +2783,16 @@ describe("neuwoRtdModule", function () {
         neuwo.getBidRequestData(bidsConfigEvicted, () => {}, conf, "consent data");
         expect(server.requests.length, "page-0 should be evicted and trigger new request").to.equal(12);
 
-        // page-1 should still be cached
+        // Re-adding page-0 evicted page-1, so page-2 is now the oldest entry still cached
         const bidsConfigStillCached = bidsConfiglike();
-        conf.params.websiteToAnalyseUrl = "https://publisher.works/page-1";
+        conf.params.websiteToAnalyseUrl = "https://publisher.works/page-2";
         neuwo.getBidRequestData(bidsConfigStillCached, () => {}, conf, "consent data");
-        expect(server.requests.length, "page-1 should still be in cache").to.equal(12);
+        expect(server.requests.length, "page-2 should still be in cache").to.equal(12);
       });
     });
 
     describe("when enableCache is false", function () {
-      it("should not cache the API response and make a new request each time", function () {
+      it("should not cache the API response and make a new request each time", async function () {
         const apiResponse = getNeuwoApiResponse();
         const bidsConfig1 = bidsConfiglike();
         const bidsConfig2 = bidsConfiglike();
@@ -2710,6 +2823,7 @@ describe("neuwoRtdModule", function () {
         );
 
         // Both configs should have the same data structure
+        await flushPromises();
         const contentData1 = bidsConfig1.ortb2Fragments.global.site.content.data[0];
         const contentData2 = bidsConfig2.ortb2Fragments.global.site.content.data[0];
         expect(contentData1, "First config should have Neuwo data").to.exist;
@@ -2718,40 +2832,26 @@ describe("neuwoRtdModule", function () {
         expect(contentData2.name, "Second config should have correct provider").to.equal(neuwo.DATA_PROVIDER);
       });
 
-      it("should bypass existing cache when enableCache is false", function () {
-        const apiResponse = getNeuwoApiResponse();
-        const bidsConfig1 = bidsConfiglike();
-        const bidsConfig2 = bidsConfiglike();
-        const bidsConfig3 = bidsConfiglike();
+      it("should use an existing entry once and then call fresh when enableCache is false", async function () {
+        const bidsConfig = bidsConfiglike();
         const conf = config();
         conf.params.websiteToAnalyseUrl = "https://publisher.works/article.php?id=4";
 
-        // First call with caching enabled (default)
-        neuwo.getBidRequestData(bidsConfig1, () => {}, conf, "consent data");
+        neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+        respondOk(server.requests[0]);
+        await flushPromises();
         expect(server.requests.length, "First call should make an API request").to.equal(1);
 
-        const request1 = server.requests[0];
-        request1.respond(
-          200,
-          { "Content-Type": "application/json; encoding=UTF-8" },
-          JSON.stringify(apiResponse)
-        );
-
-        // Second call with caching enabled should use cache
-        neuwo.getBidRequestData(bidsConfig2, () => {}, conf, "consent data");
-        expect(server.requests.length, "Second call should use cache").to.equal(1);
-
-        // Third call with caching disabled should bypass cache
         conf.params.enableCache = false;
-        neuwo.getBidRequestData(bidsConfig3, () => {}, conf, "consent data");
-        expect(server.requests.length, "Third call should bypass cache and make new request").to.equal(2);
-
-        const request2 = server.requests[1];
-        request2.respond(
-          200,
-          { "Content-Type": "application/json; encoding=UTF-8" },
-          JSON.stringify(apiResponse)
+        neuwo.getBidRequestData(bidsConfig, () => {}, conf, "consent data");
+        await flushPromises();
+        expect(server.requests.length, "Second call should use the existing entry").to.equal(1);
+        expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name, "should inject the existing entry").to.equal(
+          neuwo.DATA_PROVIDER
         );
+
+        neuwo.getBidRequestData(bidsConfiglike(), () => {}, conf, "consent data");
+        expect(server.requests.length, "Third call should make a new API request").to.equal(2);
       });
 
       it("should clear pending request after error response and retry on next call", function (done) {
@@ -3255,7 +3355,7 @@ describe("neuwoRtdModule", function () {
       server.requests[0].respond(500, {}, "Server error");
     });
 
-    it("should never put the group where bidders can see it", function () {
+    it("should never put the group where bidders can see it", async function () {
       randomStub.returns(0.1);
       const conf = shareConfig({ enabled: true });
       neuwo.neuwoRtdModule.init(conf);
@@ -3271,6 +3371,7 @@ describe("neuwoRtdModule", function () {
         JSON.stringify(getNeuwoApiResponse())
       );
 
+      await flushPromises();
       expect(bidsConfig.ortb2Fragments.global.site.content.data[0].name, "should still enrich").to.equal(
         neuwo.DATA_PROVIDER
       );
