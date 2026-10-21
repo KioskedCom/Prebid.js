@@ -330,12 +330,12 @@ Paste the snippet inline in the page `<head>`, before the Prebid.js script tag:
 (function () {
   var ratio = 0.9;
   var group = Math.random() < ratio ? "enriched" : "baseline";
-  var api = "<Your Neuwo Edge API Endpoint URL>?token=<Your Neuwo API Token>&iabVersions=6&iabVersions=4&iabVersions=1&_neuwo_prod=PrebidModule&url=";
+  var api = "<Your Neuwo Edge API Endpoint URL>?token=<Your Neuwo API Token>&_neuwo_prod=PrebidModule&iabVersions=6&iabVersions=4&iabVersions=1";
   var page = location.href;
   window.neuwoRtd = {
     group: group,
     data: group === "enriched"
-      ? fetch(api + encodeURIComponent(page))
+      ? fetch(api + "&url=" + encodeURIComponent(page))
           .then(function (r) { return r.ok ? r.json() : null; })
           .catch(function () { return null; })
       : null
@@ -357,8 +357,9 @@ The snippet sets one object, which the module reads once, when it initialises:
 - Set `ratio` to the module's `enrichmentShareSettings.enrichmentRatio`. With enrichment share off, use `1`.
 - Use the same query string as the module: the taxonomy versions, any `filter_*` parameters, and the URL cleaning,
   reflected in `page` (for example `location.origin + location.pathname` when the module strips query parameters and
-  fragments). The simplest way to get it is to run the page with Prebid.js debug on (`?pbjs_debug=true`) and copy the
-  URL the module logs after `Calling Neuwo API Endpoint:`, without its `url=` value.
+  fragments). The simplest way to get it is to run the page with Prebid.js debug on (`?pbjs_debug=true`), copy the
+  URL the module logs after `Calling Neuwo API Endpoint:`, and remove its whole `url` parameter (`&url=` and its
+  value). The result is `api`, and the snippet adds `&url=` back at the end.
 - A mismatch is not an error. The module injects whatever taxonomies the response contains and skips empty ones.
 - The snippet's call also runs before the consent management platform answers.
 
