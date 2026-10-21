@@ -1,6 +1,6 @@
 /**
  * @module neuwoRtdProvider
- * @version 3.1.0
+ * @version 3.2.0
  * @author Grzegorz Malisz
  * @see {project-root-directory}/integrationExamples/gpt/neuwoRtdProvider_example.html for an example/testing page.
  * @see {project-root-directory}/test/spec/modules/neuwoRtdProvider_spec.js for unit tests.
@@ -30,7 +30,7 @@ import {
 } from "../src/utils.js";
 
 const MODULE_NAME = "NeuwoRTDModule";
-const MODULE_VERSION = "3.1.0";
+const MODULE_VERSION = "3.2.0";
 export const DATA_PROVIDER = "www.neuwo.ai";
 
 const ENRICHMENT_GROUP_KEY = "neuwo_rtd_group";
@@ -71,7 +71,8 @@ const IAB_CONTENT_TAXONOMY_MAP = {
 
 /**
  * Validates the configuration and initialises the module.
- * In the enriched group, also starts the Neuwo API call so the first auction does not have to.
+ * Takes the group from the Neuwo page snippet when it set a valid one, otherwise draws it.
+ * In the enriched group, also starts the Neuwo API call, or adopts the snippet's data, so the first auction does not have to.
  *
  * @param {Object} config The module configuration.
  * @param {Object} userConsent The user consent object.
@@ -96,11 +97,15 @@ function init(config, userConsent) {
       params.neuwoApiUrl
     );
   }
-  enrichmentGroup = drawEnrichmentGroup(params.enrichmentShareSettings);
+  const pageGroup = getPageGroup();
+  if (pageGroup) {
+    logInfo(MODULE_NAME, "init():", "Using the group from the page snippet:", pageGroup);
+  }
+  enrichmentGroup = pageGroup || drawEnrichmentGroup(params.enrichmentShareSettings);
   if (enrichmentGroup === ENRICHMENT_GROUPS.ENRICHED) {
     const apiUrl = buildNeuwoApiUrl(params);
     if (apiUrl) {
-      getCategories(apiUrl);
+      getCategories(apiUrl, pageGroup ? window.neuwoRtd.data : undefined);
     }
   }
   return true;
@@ -326,6 +331,16 @@ function isValidApiUrl(url) {
   } catch (e) {
     return false;
   }
+}
+
+/**
+ * Returns the enrichment share group set by the Neuwo page snippet in `window.neuwoRtd`, which is only read.
+ *
+ * @returns {string|undefined} `"enriched"` or `"baseline"`, or `undefined` when the snippet set no valid group.
+ */
+function getPageGroup() {
+  const group = window.neuwoRtd?.group;
+  return Object.values(ENRICHMENT_GROUPS).includes(group) ? group : undefined;
 }
 
 /**
