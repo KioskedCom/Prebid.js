@@ -44,20 +44,17 @@ let enrichmentGroup = ENRICHMENT_GROUPS.ENRICHED;
 // Default IAB Content Taxonomy version
 const DEFAULT_IAB_CONTENT_TAXONOMY_VERSION = "2.2";
 
-// Maximum number of cached API responses to keep. Oldest entries are evicted when exceeded.
+// Maximum number of API requests to keep. Oldest entries are evicted when exceeded.
 const MAX_CACHE_ENTRIES = 10;
-// Cached API responses keyed by full API URL to avoid redundant requests.
-let cachedResponses = {};
-// In-flight request promises keyed by full API URL to prevent duplicate API calls during the same request cycle.
-let pendingRequests = {};
+// API request promises keyed by full API URL: pending while in flight, then the cached response.
+let categoryRequests = {};
 
 /**
- * Clears the cached API responses and pending requests. Primarily used for testing.
+ * Clears the stored API requests. Primarily used for testing.
  * @private
  */
 export function clearCache() {
-  cachedResponses = {};
-  pendingRequests = {};
+  categoryRequests = {};
 }
 
 // Maps the IAB Content Taxonomy version string to the corresponding segtax ID.
@@ -104,7 +101,7 @@ function init(config, userConsent) {
 
 /**
  * Fetches contextual data from the Neuwo API and enriches the bid request object with IAB categories.
- * Uses cached response if available to avoid redundant API calls.
+ * Waits on the stored request for the URL when there is one, so the same URL is never requested twice.
  *
  * @param {Object} reqBidsConfigObj The bid request configuration object.
  * @param {function} callback The callback function to continue the auction.
@@ -144,24 +141,75 @@ export function getBidRequestData(
   }
 
   const {
+    iabContentTaxonomyVersion = DEFAULT_IAB_CONTENT_TAXONOMY_VERSION,
+    enableCache = true,
+    enableOrtb25Fields = true,
+  } = config.params;
+
+  const apiUrl = buildNeuwoApiUrl(config.params);
+  if (!apiUrl) {
+    callback();
+    return;
+  }
+
+  const request = getCategories(apiUrl);
+  if (!enableCache) {
+    delete categoryRequests[apiUrl];
+  }
+  request
+    .then((data) => {
+      if (data) {
+        injectIabCategories(data, reqBidsConfigObj, iabContentTaxonomyVersion, enableOrtb25Fields);
+      }
+    })
+    .catch((ex) => {
+      logError(MODULE_NAME, "getBidRequestData():", "Error processing Neuwo API response:", ex);
+    })
+    .finally(() => callback());
+}
+
+/**
+ * Returns the enrichment share group as ad server targeting for every ad unit.
+ *
+ * @param {string[]} adUnitCodes The ad unit codes of the auction.
+ * @returns {Object} `{ [code]: { neuwo_rtd_group: group } }`; the group is `enriched` while enrichment share is off.
+ */
+export function getTargetingData(adUnitCodes) {
+  const targeting = {};
+  adUnitCodes.forEach((code) => {
+    targeting[code] = { [ENRICHMENT_GROUP_KEY]: enrichmentGroup };
+  });
+  return targeting;
+}
+
+//
+// HELPER FUNCTIONS
+//
+
+/**
+ * Builds the full Neuwo API URL for the page to analyse.
+ *
+ * @param {Object} params The module configuration parameters, as documented on `getBidRequestData`.
+ * @returns {string|null} The full API URL, or `null` when there is no URL to analyse.
+ */
+export function buildNeuwoApiUrl(params) {
+  const {
     websiteToAnalyseUrl,
     neuwoApiUrl,
     neuwoApiToken,
     iabContentTaxonomyVersion = DEFAULT_IAB_CONTENT_TAXONOMY_VERSION,
-    enableCache = true,
     enableOrtb25Fields = true,
     stripAllQueryParams,
     stripQueryParamsForDomains,
     stripQueryParams,
     stripFragments,
     iabTaxonomyFilters,
-  } = config.params;
+  } = params;
 
   const rawUrl = websiteToAnalyseUrl || getRefererInfo().page;
   if (!rawUrl) {
-    logError(MODULE_NAME, "getBidRequestData():", "No URL available to analyse");
-    callback();
-    return;
+    logError(MODULE_NAME, "buildNeuwoApiUrl():", "No URL available to analyse");
+    return null;
   }
   const processedUrl = cleanUrl(rawUrl, {
     stripAllQueryParams,
@@ -201,166 +249,63 @@ export function getBidRequestData(
     urlParams.push(...filterParams);
   }
 
-  const neuwoApiUrlFull = neuwoApiUrl + joiner + urlParams.join("&");
-  const cacheKey = neuwoApiUrlFull;
-
-  // Cache flow: cached response -> pending request -> new request
-  // Each caller gets their own callback invoked when data is ready.
-  // Keyed by cacheKey to ensure different parameters never share cached data.
-  if (enableCache && cachedResponses[cacheKey]) {
-    // Previous request succeeded - use cached response immediately
-    logInfo(
-      MODULE_NAME,
-      "getBidRequestData():",
-      "Cache System:",
-      "Using cached response for:",
-      cacheKey
-    );
-    injectIabCategories(
-      cachedResponses[cacheKey],
-      reqBidsConfigObj,
-      iabContentTaxonomyVersion,
-      enableOrtb25Fields
-    );
-    callback();
-  } else if (enableCache && pendingRequests[cacheKey]) {
-    // Another caller started a request with the same params - wait for it
-    logInfo(
-      MODULE_NAME,
-      "getBidRequestData():",
-      "Cache System:",
-      "Waiting for pending request for:",
-      cacheKey
-    );
-    pendingRequests[cacheKey]
-      .then((responseParsed) => {
-        if (responseParsed) {
-          injectIabCategories(
-            responseParsed,
-            reqBidsConfigObj,
-            iabContentTaxonomyVersion,
-            enableOrtb25Fields
-          );
-        }
-      })
-      .finally(() => callback());
-  } else {
-    // First request or cache disabled - make the API call
-    logInfo(
-      MODULE_NAME,
-      "getBidRequestData():",
-      "Cache System:",
-      "Calling Neuwo API Endpoint:",
-      neuwoApiUrlFull
-    );
-
-    const requestPromise = new Promise((resolve) => {
-      ajax(
-        neuwoApiUrlFull,
-        {
-          success: (response) => {
-            logInfo(
-              MODULE_NAME,
-              "getBidRequestData():",
-              "success():",
-              "Neuwo API raw response:",
-              response
-            );
-
-            let responseParsed;
-            try {
-              responseParsed = JSON.parse(response);
-            } catch (ex) {
-              logError(
-                MODULE_NAME,
-                "getBidRequestData():",
-                "success():",
-                "Error parsing Neuwo API response JSON:",
-                ex
-              );
-              resolve(null);
-              return;
-            }
-
-            try {
-              // Cache response, evicting oldest entry if at capacity.
-              // Only cache valid responses so failed requests can be retried.
-              if (
-                enableCache &&
-                responseParsed &&
-                typeof responseParsed === "object"
-              ) {
-                // Object.keys() preserves string insertion order in modern JS engines.
-                const keys = Object.keys(cachedResponses);
-                if (keys.length >= MAX_CACHE_ENTRIES) {
-                  delete cachedResponses[keys[0]];
-                }
-                cachedResponses[cacheKey] = responseParsed;
-              }
-
-              injectIabCategories(
-                responseParsed,
-                reqBidsConfigObj,
-                iabContentTaxonomyVersion,
-                enableOrtb25Fields
-              );
-              resolve(responseParsed);
-            } catch (ex) {
-              logError(
-                MODULE_NAME,
-                "getBidRequestData():",
-                "success():",
-                "Error processing Neuwo API response:",
-                ex
-              );
-              resolve(null);
-            }
-          },
-          error: (err) => {
-            logError(
-              MODULE_NAME,
-              "getBidRequestData():",
-              "error():",
-              "AJAX error:",
-              err
-            );
-            resolve(null);
-          },
-        }
-      );
-    });
-
-    if (enableCache) {
-      // Store promise so concurrent callers with same params can wait on it
-      pendingRequests[cacheKey] = requestPromise;
-      // Clear after settling so failed requests can be retried
-      requestPromise.finally(() => {
-        delete pendingRequests[cacheKey];
-      });
-    }
-
-    // Signal this caller's auction to proceed once request completes
-    requestPromise.finally(() => callback());
-  }
+  return neuwoApiUrl + joiner + urlParams.join("&");
 }
 
 /**
- * Returns the enrichment share group as ad server targeting for every ad unit.
+ * Calls the Neuwo API.
  *
- * @param {string[]} adUnitCodes The ad unit codes of the auction.
- * @returns {Object} `{ [code]: { neuwo_rtd_group: group } }`; the group is `enriched` while enrichment share is off.
+ * @param {string} apiUrl The full API URL.
+ * @returns {Promise<*>} The parsed response, or `null` when the call or the parsing fails.
  */
-export function getTargetingData(adUnitCodes) {
-  const targeting = {};
-  adUnitCodes.forEach((code) => {
-    targeting[code] = { [ENRICHMENT_GROUP_KEY]: enrichmentGroup };
+function callNeuwoApi(apiUrl) {
+  logInfo(MODULE_NAME, "callNeuwoApi():", "Calling Neuwo API Endpoint:", apiUrl);
+  return new Promise((resolve) => {
+    ajax(apiUrl, {
+      success: (response) => {
+        logInfo(MODULE_NAME, "callNeuwoApi():", "success():", "Neuwo API raw response:", response);
+        try {
+          resolve(JSON.parse(response));
+        } catch (ex) {
+          logError(MODULE_NAME, "callNeuwoApi():", "success():", "Error parsing Neuwo API response JSON:", ex);
+          resolve(null);
+        }
+      },
+      error: (err) => {
+        logError(MODULE_NAME, "callNeuwoApi():", "error():", "AJAX error:", err);
+        resolve(null);
+      },
+    });
   });
-  return targeting;
 }
 
-//
-// HELPER FUNCTIONS
-//
+/**
+ * Returns the stored request for an API URL, starting it when there is none.
+ * A request that ends without data is removed, so the next caller retries.
+ *
+ * @param {string} apiUrl The full API URL, used as the key.
+ * @param {Promise<Object|null>|Object|null} [pageData] Data to use instead of calling the API.
+ * @returns {Promise<Object|null>} The response, or `null` when there is none.
+ */
+function getCategories(apiUrl, pageData) {
+  if (!categoryRequests[apiUrl]) {
+    // Object.keys() preserves string insertion order in modern JS engines.
+    const keys = Object.keys(categoryRequests);
+    if (keys.length >= MAX_CACHE_ENTRIES) {
+      delete categoryRequests[keys[0]];
+    }
+    const source = pageData != null ? Promise.resolve(pageData) : callNeuwoApi(apiUrl);
+    categoryRequests[apiUrl] = source
+      .then((data) => (data && typeof data === "object" ? data : null), () => null)
+      .then((data) => {
+        if (!data) {
+          delete categoryRequests[apiUrl];
+        }
+        return data;
+      });
+  }
+  return categoryRequests[apiUrl];
+}
 
 /**
  * Checks that the Neuwo API URL is an absolute URL whose path ends in /edge/v1/iab.
