@@ -71,6 +71,7 @@ const IAB_CONTENT_TAXONOMY_MAP = {
 
 /**
  * Validates the configuration and initialises the module.
+ * In the enriched group, also starts the Neuwo API call so the first auction does not have to.
  *
  * @param {Object} config The module configuration.
  * @param {Object} userConsent The user consent object.
@@ -96,6 +97,12 @@ function init(config, userConsent) {
     );
   }
   enrichmentGroup = drawEnrichmentGroup(params.enrichmentShareSettings);
+  if (enrichmentGroup === ENRICHMENT_GROUPS.ENRICHED) {
+    const apiUrl = buildNeuwoApiUrl(params);
+    if (apiUrl) {
+      getCategories(apiUrl);
+    }
+  }
   return true;
 }
 
