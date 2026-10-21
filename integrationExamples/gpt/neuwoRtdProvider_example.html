@@ -7,6 +7,41 @@
 
     <title>RTD Module Test</title>
 
+    <script>
+        (function () {
+            var saved;
+            try {
+                saved = JSON.parse(sessionStorage.getItem("neuwoRtdExampleSnippet"));
+            } catch (e) {
+                saved = null;
+            }
+            if (!saved) {
+                return;
+            }
+            var segtaxByVersion = { "1.0": 1, "2.0": 2, "2.1": 5, "2.2": 6, "3.0": 7, "3.1": 9 };
+            var segtax = segtaxByVersion[saved.iabContentTaxonomyVersion] || 6;
+            var iabVersions = [segtax, 4];
+            if (saved.enableOrtb25Fields && segtax !== 1) {
+                iabVersions.push(1);
+            }
+            var ratio = saved.enableEnrichmentShare
+                ? (typeof saved.enrichmentRatio === "number" ? saved.enrichmentRatio : 0.9)
+                : 1;
+            var group = Math.random() < ratio ? "enriched" : "baseline";
+            var api = saved.neuwoApiUrl + (saved.neuwoApiUrl.indexOf("?") < 0 ? "?" : "&") +
+                "token=" + saved.neuwoApiToken + "&iabVersions=" + iabVersions.join("&iabVersions=") +
+                "&_neuwo_prod=PrebidModule&url=";
+            var page = saved.websiteToAnalyseUrl || location.href;
+            window.neuwoRtd = {
+                group: group,
+                data: group === "enriched"
+                    ? fetch(api + encodeURIComponent(page))
+                        .then(function (r) { return r.ok ? r.json() : null; })
+                        .catch(function () { return null; })
+                    : null
+            };
+        })();
+    </script>
     <script src="../../build/dev/prebid.js" async type="text/javascript"></script>
     <script async src="https://securepubads.g.doubleclick.net/tag/js/gpt.js"></script>
     <script>
@@ -165,6 +200,26 @@
                 ? Number(inputEnrichmentRatio.value)
                 : undefined;
             const enrichmentShareSettings = enableEnrichmentShare ? { enabled: true, enrichmentRatio } : undefined;
+
+            const inputUsePageSnippet = document.getElementById("use-page-snippet");
+            if (inputUsePageSnippet && inputUsePageSnippet.checked) {
+                const snippetSettings = JSON.stringify({
+                    neuwoApiUrl,
+                    neuwoApiToken,
+                    websiteToAnalyseUrl,
+                    iabContentTaxonomyVersion,
+                    enableOrtb25Fields,
+                    enableEnrichmentShare,
+                    enrichmentRatio,
+                });
+                if (sessionStorage.getItem("neuwoRtdExampleSnippet") !== snippetSettings) {
+                    sessionStorage.setItem("neuwoRtdExampleSnippet", snippetSettings);
+                    location.reload();
+                    return;
+                }
+            } else {
+                sessionStorage.removeItem("neuwoRtdExampleSnippet");
+            }
 
             pbjs.que.push(function () {
                 pbjs.setConfig({
@@ -327,7 +382,38 @@
         <p style="color: #666; font-size: 0.9em;">RTD settings apply once per page load: reload the page to change them.
             Set the ratio to <code>1</code> or <code>0</code> to put every page load in one group.</p>
 
+        <h3>Page Snippet</h3>
+        <div style="margin-bottom: 10px;">
+            <label>
+                <input type="checkbox" id="use-page-snippet" />
+                Use the page snippet (saves these settings for this tab and reloads)
+            </label>
+        </div>
+        <p style="color: #666; font-size: 0.9em;">After the reload, click "Update" again to run the auction.
+            IAB filters are not applied to the snippet's request.</p>
+
         <button onClick="onSettingsUpdate()">Update</button>
+        <script>
+            (function () {
+                let saved;
+                try {
+                    saved = JSON.parse(sessionStorage.getItem("neuwoRtdExampleSnippet"));
+                } catch (e) {
+                    saved = null;
+                }
+                if (!saved) {
+                    return;
+                }
+                document.getElementById("neuwo-api-url").value = saved.neuwoApiUrl;
+                document.getElementById("neuwo-api-token").value = saved.neuwoApiToken;
+                document.getElementById("website-to-analyse-url").value = saved.websiteToAnalyseUrl || "";
+                document.getElementById("iab-content-taxonomy-version").value = saved.iabContentTaxonomyVersion || "";
+                document.getElementById("enable-ortb25-fields").checked = saved.enableOrtb25Fields;
+                document.getElementById("enable-enrichment-share").checked = saved.enableEnrichmentShare;
+                document.getElementById("enrichment-ratio").value = saved.enrichmentRatio ?? "";
+                document.getElementById("use-page-snippet").checked = true;
+            })();
+        </script>
     </div>
 
     <div>
