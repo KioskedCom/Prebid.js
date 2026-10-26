@@ -1344,6 +1344,92 @@ describe("neuwoRtdModule", function () {
           "&_neuwo_prod=PrebidModule&iabVersions=6&iabVersions=4&iabVersions=1"
       );
     });
+
+    it("should build the exact API URL for representative configurations", function () {
+      const API = "https://ctx.neuwo.ai/api/aitopics/edge/v1/iab";
+      const FILTERS = {
+        ContentTier1: { limit: 1 },
+        ContentTier2: { limit: 2 },
+        ContentTier3: { limit: 2 },
+        AudienceTier3: { limit: 2 },
+        AudienceTier4: { limit: 2 },
+        AudienceTier5: { limit: 1 },
+      };
+      const cases = [
+        {
+          params: {
+            neuwoApiUrl: API,
+            neuwoApiToken: "tkn",
+            iabContentTaxonomyVersion: "2.2",
+            enableOrtb25Fields: true,
+            iabTaxonomyFilters: FILTERS,
+            stripAllQueryParams: true,
+          },
+          page: "https://news.example.com/sports/2026/10/22/story/12345?utm_source=x#comments",
+          expected:
+            API +
+            "?token=tkn&url=https%3A%2F%2Fnews.example.com%2Fsports%2F2026%2F10%2F22%2Fstory%2F12345%23comments&_neuwo_prod=PrebidModule&iabVersions=6&iabVersions=4&iabVersions=1&filter_6_1_limit=1&filter_6_2_limit=2&filter_6_3_limit=2&filter_4_3_limit=2&filter_4_4_limit=2&filter_4_5_limit=1&filter_1_1_limit=1&filter_1_2_limit=2",
+        },
+        {
+          params: {
+            neuwoApiUrl: API,
+            neuwoApiToken: "tkn",
+            iabContentTaxonomyVersion: "2.2",
+            enableOrtb25Fields: false,
+            iabTaxonomyFilters: FILTERS,
+            stripAllQueryParams: true,
+          },
+          page: "https://example.com/a?b=1",
+          expected:
+            API +
+            "?token=tkn&url=https%3A%2F%2Fexample.com%2Fa&_neuwo_prod=PrebidModule&iabVersions=6&iabVersions=4&filter_6_1_limit=1&filter_6_2_limit=2&filter_6_3_limit=2&filter_4_3_limit=2&filter_4_4_limit=2&filter_4_5_limit=1",
+        },
+        {
+          params: {
+            neuwoApiUrl: API,
+            neuwoApiToken: "tkn",
+            iabContentTaxonomyVersion: "3.0",
+            enableOrtb25Fields: true,
+            iabTaxonomyFilters: { ContentTier1: { limit: 3, threshold: 0.1 } },
+            stripQueryParams: ["utm_source"],
+            stripFragments: true,
+          },
+          page: "https://example.com/a?utm_source=x&id=7#top",
+          expected:
+            API +
+            "?token=tkn&url=https%3A%2F%2Fexample.com%2Fa%3Fid%3D7&_neuwo_prod=PrebidModule&iabVersions=7&iabVersions=4&iabVersions=1&filter_7_1_limit=3&filter_7_1_threshold=0.1&filter_1_1_limit=3&filter_1_1_threshold=0.1",
+        },
+        {
+          params: {
+            neuwoApiUrl: API + "?x=1",
+            neuwoApiToken: "tkn",
+            websiteToAnalyseUrl: "https://publisher.works/a.php",
+            stripAllQueryParams: true,
+            enableOrtb25Fields: false,
+          },
+          page: "https://ignored.example/",
+          expected:
+            API +
+            "?x=1&token=tkn&url=https%3A%2F%2Fpublisher.works%2Fa.php&_neuwo_prod=PrebidModule&iabVersions=6&iabVersions=4",
+        },
+        {
+          params: {
+            neuwoApiUrl: API,
+            neuwoApiToken: "tkn",
+            enableOrtb25Fields: false,
+            stripQueryParamsForDomains: ["example.com"],
+          },
+          page: "https://news.example.com/a?b=1",
+          expected:
+            API +
+            "?token=tkn&url=https%3A%2F%2Fnews.example.com%2Fa&_neuwo_prod=PrebidModule&iabVersions=6&iabVersions=4",
+        },
+      ];
+
+      cases.forEach(({ params, page, expected }) => {
+        expect(neuwo.buildNeuwoApiUrl(params, () => ({ page }))).to.equal(expected);
+      });
+    });
   });
 
   describe("getBidRequestData", function () {
